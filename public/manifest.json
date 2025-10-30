@@ -1,0 +1,13 @@
+{
+    "manifest_version": 3,
+    "name": "MindStack",
+    "version": "1.0",
+    "description": "StackMind turns your browser into a private AI memory: it auto-captures what you learn from docs or Stack Overflow, summarizes it with on-device AI, and recalls it the next time you hit a similar error - even in your console, even offline.",
+    "action": {
+        "default_popup": "index.html"
+    },
+    "permissions": [
+        "activeTab",
+        "storage"
+    ]
+}
