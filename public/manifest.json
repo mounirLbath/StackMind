@@ -8,6 +8,24 @@
     },
     "permissions": [
         "activeTab",
-        "storage"
-    ]
+        "storage",
+        "contextMenus"
+    ],
+    "host_permissions": [
+        "https://stackoverflow.com/*",
+        "https://*.stackoverflow.com/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "https://stackoverflow.com/*",
+                "https://*.stackoverflow.com/*"
+            ],
+            "js": ["content.js"],
+            "run_at": "document_idle"
+        }
+    ],
+    "background": {
+        "service_worker": "background.js"
+    }
 }
