@@ -9,7 +9,8 @@
     "permissions": [
         "activeTab",
         "storage",
-        "contextMenus"
+        "contextMenus",
+        "aiOriginTrial"
     ],
     "host_permissions": [
         "https://stackoverflow.com/*",

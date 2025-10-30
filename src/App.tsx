@@ -8,6 +8,7 @@ interface CapturedSolution {
   timestamp: number;
   questionId?: string;
   notes?: string;
+  tags?: string[];
 }
 
 function App() {
@@ -66,6 +67,68 @@ function App() {
   const openInWindow = () => {
     const url = chrome.runtime.getURL('index.html');
     window.open(url, '_blank');
+  };
+
+  const generateTags = async (solution: CapturedSolution) => {
+    try {
+      // @ts-ignore - Chrome Prompt API is experimental
+      const availability = await LanguageModel.availability();
+      
+      if (availability === 'unavailable') {
+        alert('Chrome Prompt API is not available. Make sure you are using Chrome 128+ with AI features enabled.');
+        return;
+      }
+
+      // Create session
+      // @ts-ignore
+      const session = await LanguageModel.create({
+        monitor(m: any) {
+          m.addEventListener('downloadprogress', (e: any) => {
+            console.log(`Downloaded ${e.loaded * 100}%`);
+          });
+        },
+      });
+
+      const promptText = `You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
+
+Generate tags for this programming solution:
+
+Title: ${solution.title}
+
+Solution: ${solution.text.substring(0, 500)}...
+
+Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
+      
+      const result = await session.prompt(promptText);
+      
+      console.log('Result:', result);
+
+      // Parse the tags
+      const tags = result.split(',').map((tag: string) => tag.trim().toLowerCase()).filter((tag: string) => tag.length > 0);
+      
+      // Update the solution with tags
+      const updatedSolutions = solutions.map(s => 
+        s.id === solution.id ? { ...s, tags } : s
+      );
+      setSolutions(updatedSolutions);
+      
+      // Also update selected solution if it's the same
+      if (selectedSolution?.id === solution.id) {
+        setSelectedSolution({ ...selectedSolution, tags });
+      }
+
+      // Save to storage
+      chrome.runtime.sendMessage({ 
+        action: 'updateSolution', 
+        id: solution.id, 
+        updates: { tags } 
+      });
+
+      session.destroy();
+    } catch (error) {
+      console.error('Error generating tags:', error);
+      alert('Failed to generate tags. Error: ' + (error as Error).message);
+    }
   };
 
   const filteredSolutions = solutions.filter(s => 
@@ -163,9 +226,20 @@ function App() {
                   <div className="text-xs text-gray-600 leading-normal overflow-hidden line-clamp-2">
                     {solution.text.substring(0, 100)}...
                   </div>
-                  {solution.notes && (
-                    <div className="text-[11px] text-gray-700 mt-1.5 font-medium">Has notes</div>
-                  )}
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    {solution.notes && (
+                      <div className="text-[11px] text-gray-700 font-medium">Has notes</div>
+                    )}
+                    {solution.tags && solution.tags.length > 0 && (
+                      <div className="flex gap-1 flex-wrap">
+                        {solution.tags.map((tag, idx) => (
+                          <span key={idx} className="text-[10px] bg-gray-200 text-gray-800 px-2 py-0.5 rounded">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -217,7 +291,26 @@ function App() {
                     <div className="text-[13px] text-gray-800">{new Date(selectedSolution.timestamp).toLocaleString()}</div>
                   </div>
 
+                  {selectedSolution.tags && selectedSolution.tags.length > 0 && (
+                    <div className="mb-5">
+                      <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Tags:</label>
+                      <div className="flex gap-2 flex-wrap">
+                        {selectedSolution.tags.map((tag, idx) => (
+                          <span key={idx} className="text-xs bg-gray-200 text-gray-800 px-3 py-1 rounded font-medium">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex flex-col gap-2 mt-5">
+                    <button 
+                      className="bg-gray-800 text-white border border-gray-800 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors text-left hover:bg-gray-900" 
+                      onClick={() => generateTags(selectedSolution)}
+                    >
+                      {selectedSolution.tags && selectedSolution.tags.length > 0 ? 'Regenerate Tags' : 'Generate Tags with AI'}
+                    </button>
                     <button 
                       className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors text-left hover:bg-gray-400" 
                       onClick={() => copyToClipboard(selectedSolution.text)}

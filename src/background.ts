@@ -39,6 +39,75 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.action === 'updateSolution') {
+    chrome.storage.local.get(['solutions'], (result) => {
+      const solutions = result.solutions || [];
+      const updated = solutions.map((s: any) => 
+        s.id === message.id ? { ...s, ...message.updates } : s
+      );
+      chrome.storage.local.set({ solutions: updated }, () => {
+        sendResponse({ success: true });
+      });
+    });
+    return true;
+  }
+
+  if (message.action === 'generateTags') {
+    (async () => {
+      try {
+        // @ts-ignore - Chrome Prompt API is experimental
+        const availability = await LanguageModel.availability();
+        
+        if (availability === 'unavailable') {
+          sendResponse({ 
+            success: false, 
+            error: 'AI not available. Add tags manually below.' 
+          });
+          return;
+        }
+
+        // @ts-ignore
+        const session = await LanguageModel.create({
+          monitor(m: any) {
+            m.addEventListener('downloadprogress', (e: any) => {
+              console.log(`Downloaded ${e.loaded * 100}%`);
+            });
+          },
+        });
+
+        const promptText = `You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
+
+Generate tags for this programming solution:
+
+Title: ${message.title}
+
+Solution: ${message.text}...
+
+Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
+        
+        const result = await session.prompt(promptText);
+        
+        console.log('Result:', result);
+        
+        // Parse the tags
+        const tags = result.split(',')
+          .map((tag: string) => tag.trim().toLowerCase())
+          .filter((tag: string) => tag.length > 0);
+        
+        session.destroy();
+        
+        sendResponse({ success: true, tags });
+      } catch (error) {
+        console.error('Error generating tags:', error);
+        sendResponse({ 
+          success: false, 
+          error: 'Failed to generate tags. Add them manually below.' 
+        });
+      }
+    })();
+    return true; // Keep the message channel open for async response
+  }
 });
 
 // Context menu for right-click capture (optional enhancement)

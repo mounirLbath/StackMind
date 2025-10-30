@@ -8,12 +8,14 @@ interface CapturedSolution {
   title: string;
   timestamp: number;
   questionId?: string;
+  tags?: string[];
 }
 
 class StackOverflowCapture {
   private floatingButton: HTMLDivElement | null = null;
   private capturePanel: HTMLDivElement | null = null;
   private selectedText: string = '';
+  private tags: string[] = [];
 
   constructor() {
     this.init();
@@ -103,7 +105,7 @@ class StackOverflowCapture {
     }
   }
 
-  private showCapturePanel() {
+  private async showCapturePanel() {
 
     console.log('Showing capture panel');
     // Hide the floating button
@@ -164,6 +166,36 @@ class StackOverflowCapture {
             line-height: 1.6;
             color: #424242;
           ">${this.escapeHtml(this.selectedText)}</div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #424242; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+            Tags:
+          </label>
+          <div id="stackmind-tags-status" style="
+            padding: 12px;
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #757575;
+            margin-bottom: 8px;
+          ">Generating tags with AI...</div>
+          <div id="stackmind-tags-container" style="
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 8px;
+          "></div>
+          <input type="text" id="stackmind-add-tag" placeholder="Add more tags (press Enter)" style="
+            width: 100%;
+            border: 1px solid #bdbdbd;
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-family: inherit;
+            box-sizing: border-box;
+          " onmouseover="this.style.borderColor='#757575'" onmouseout="this.style.borderColor='#bdbdbd'">
         </div>
 
         <div style="margin-bottom: 20px;">
@@ -232,11 +264,24 @@ class StackOverflowCapture {
     const cancelBtn = document.getElementById('stackmind-cancel');
     const saveBtn = document.getElementById('stackmind-save');
     const backdrop = document.getElementById('stackmind-backdrop');
+    const tagInput = document.getElementById('stackmind-add-tag') as HTMLInputElement;
 
     closeBtn?.addEventListener('click', () => this.hideCapturePanel());
     cancelBtn?.addEventListener('click', () => this.hideCapturePanel());
     backdrop?.addEventListener('click', () => this.hideCapturePanel());
     saveBtn?.addEventListener('click', () => this.saveSolution());
+    
+    // Handle manual tag addition
+    tagInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && tagInput.value.trim()) {
+        e.preventDefault();
+        this.addTag(tagInput.value.trim().toLowerCase());
+        tagInput.value = '';
+      }
+    });
+
+    // Auto-generate tags
+    await this.generateTags();
   }
 
   private hideCapturePanel() {
@@ -244,6 +289,104 @@ class StackOverflowCapture {
       this.capturePanel.remove();
       this.capturePanel = null;
     }
+    // Reset tags when closing
+    this.tags = [];
+  }
+
+  private async generateTags() {
+    try {
+      const statusEl = document.getElementById('stackmind-tags-status');
+      
+      // Send message to background script to generate tags
+      chrome.runtime.sendMessage({
+        action: 'generateTags',
+        title: document.title,
+        text: this.selectedText.substring(0, 500)
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.error('Error generating tags:', chrome.runtime.lastError);
+          if (statusEl) {
+            statusEl.textContent = 'Failed to generate tags. Add them manually below.';
+            setTimeout(() => {
+              if (statusEl) statusEl.style.display = 'none';
+            }, 3000);
+          }
+          return;
+        }
+
+        if (response && response.success && response.tags) {
+          // Add generated tags
+          response.tags.forEach((tag: string) => this.addTag(tag));
+          
+          // Hide loading status
+          if (statusEl) {
+            statusEl.style.display = 'none';
+          }
+        } else {
+          // Handle failure
+          if (statusEl) {
+            statusEl.textContent = response?.error || 'Failed to generate tags. Add them manually below.';
+            setTimeout(() => {
+              if (statusEl) statusEl.style.display = 'none';
+            }, 3000);
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error generating tags:', error);
+      const statusEl = document.getElementById('stackmind-tags-status');
+      if (statusEl) {
+        statusEl.textContent = 'Failed to generate tags. Add them manually below.';
+        setTimeout(() => {
+          if (statusEl) statusEl.style.display = 'none';
+        }, 3000);
+      }
+    }
+  }
+
+  private addTag(tag: string) {
+    // Avoid duplicates
+    if (this.tags.includes(tag)) return;
+    
+    this.tags.push(tag);
+    
+    const container = document.getElementById('stackmind-tags-container');
+    if (!container) return;
+    
+    const tagEl = document.createElement('span');
+    tagEl.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #e0e0e0;
+      color: #424242;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    `;
+    tagEl.innerHTML = `
+      ${this.escapeHtml(tag)}
+      <button style="
+        background: none;
+        border: none;
+        color: #757575;
+        cursor: pointer;
+        padding: 0;
+        font-size: 14px;
+        line-height: 1;
+        font-weight: bold;
+      " data-tag="${this.escapeHtml(tag)}">×</button>
+    `;
+    
+    // Add remove functionality
+    const removeBtn = tagEl.querySelector('button');
+    removeBtn?.addEventListener('click', () => {
+      this.tags = this.tags.filter(t => t !== tag);
+      tagEl.remove();
+    });
+    
+    container.appendChild(tagEl);
   }
 
   private async saveSolution() {
@@ -262,7 +405,8 @@ class StackOverflowCapture {
       title: document.title,
       timestamp: Date.now(),
       questionId,
-      ...(notes && { notes })
+      ...(notes && { notes }),
+      ...(this.tags.length > 0 && { tags: this.tags })
     };
 
     try {
