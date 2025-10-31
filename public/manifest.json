@@ -9,17 +9,18 @@
     "permissions": [
         "activeTab",
         "storage",
-        "contextMenus"
+        "contextMenus",
+        "notifications",
+        "scripting"
     ],
     "host_permissions": [
-        "https://stackoverflow.com/*",
-        "https://*.stackoverflow.com/*"
+        "<all_urls>"
     ],
     "content_scripts": [
         {
             "matches": [
-                "https://stackoverflow.com/*",
-                "https://*.stackoverflow.com/*"
+                "http://*/*",
+                "https://*/*"
             ],
             "js": ["content.js"],
             "run_at": "document_idle"
