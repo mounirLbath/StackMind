@@ -21,6 +21,7 @@ interface BackgroundTask {
   };
   pageTitle: string;
   startTime: number;
+  notes?: string;
 }
 
 let backgroundTasks: BackgroundTask[] = [];
@@ -429,7 +430,9 @@ Generate title:`;
     // Find the task and update its notes
     const task = backgroundTasks.find(t => t.id === message.taskId);
     if (task) {
-      (task as any).notes = message.notes;
+      task.notes = message.notes;
+      // Notify all listeners that task was updated
+      notifyPopup('backgroundTaskUpdate', { taskId: message.taskId });
     }
     sendResponse({ success: true });
     return false; // No async response needed
@@ -536,7 +539,7 @@ Generate title:`;
         }
 
         // Get notes from the task if they were updated
-        const taskNotes = (task as any).notes || notes;
+        const taskNotes = task.notes || notes;
         
         // Save the solution
         const solution = {

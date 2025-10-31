@@ -26,6 +26,7 @@ interface BackgroundTask {
   };
   pageTitle: string;
   startTime: number;
+  notes?: string;
 }
 
 function App() {
@@ -96,6 +97,14 @@ function App() {
         if (response.tasks.length > 0 && !expandedTaskId) {
           setExpandedTaskId(response.tasks[0].id);
         }
+        // Load notes from tasks
+        const notes: { [key: string]: string } = {};
+        response.tasks.forEach((task: BackgroundTask) => {
+          if (task.notes) {
+            notes[task.id] = task.notes;
+          }
+        });
+        setTaskNotes(notes);
       }
     });
   };
