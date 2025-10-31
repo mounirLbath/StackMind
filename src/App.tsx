@@ -1139,7 +1139,7 @@ function App() {
                       </div>
 
                       <div className="flex flex-col gap-2 pt-4 border-t border-white/10">
-                        <Button onClick={startEditing} variant="primary">
+                        <Button onClick={startEditing} variant="outline">
                           <Edit2 className="w-4 h-4" />
                           Edit Solution
                         </Button>
@@ -1149,14 +1149,13 @@ function App() {
                           isLoading={isGeneratingTags}
                           disabled={isGeneratingTags}
                         >
-                          <Sparkles className="w-4 h-4" />
                           {selectedSolution.tags?.length ? 'Regenerate Tags' : 'Generate Tags'}
                         </Button>
                         <Button onClick={() => copyToClipboard(selectedSolution.text)} variant="outline">
                           <Copy className="w-4 h-4" />
                           Copy Text
                         </Button>
-                        <Button onClick={() => deleteSolution(selectedSolution.id)} variant="ghost">
+                        <Button onClick={() => deleteSolution(selectedSolution.id)} variant="outline">
                           <Trash2 className="w-4 h-4" />
                           Delete
                         </Button>
