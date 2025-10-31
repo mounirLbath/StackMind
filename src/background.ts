@@ -9,6 +9,10 @@ let isInitializingSession = false;
 let summarizerSession: any = null;
 let isInitializingSummarizer = false;
 
+// Global Proofreader session
+let proofreaderSession: any = null;
+let isInitializingProofreader = false;
+
 // Background tasks tracker
 interface BackgroundTask {
   id: string;
@@ -120,6 +124,48 @@ async function initializeSummarizer() {
   }
 }
 
+// Initialize Proofreader session on startup
+async function initializeProofreader() {
+  if (proofreaderSession || isInitializingProofreader) return;
+  
+  isInitializingProofreader = true;
+  
+  try {
+    // Check if Proofreader API exists
+    // @ts-ignore - Chrome Proofreader API is experimental
+    if (typeof Proofreader === 'undefined') {
+      console.log('Proofreader API not available (no origin trial token or flag not enabled)');
+      isInitializingProofreader = false;
+      return;
+    }
+
+    // @ts-ignore - Chrome Proofreader API is experimental
+    const availability = await Proofreader.availability();
+    
+    if (availability === 'unavailable') {
+      console.log('Proofreader API unavailable');
+      isInitializingProofreader = false;
+      return;
+    }
+
+    // @ts-ignore
+    proofreaderSession = await Proofreader.create({
+      expectedInputLanguages: ['en'],
+      monitor(m: any) {
+        m.addEventListener('downloadprogress', (e: any) => {
+          console.log(`Proofreader model: ${Math.round(e.loaded * 100)}%`);
+        });
+      }
+    });
+    console.log('Proofreader session initialized successfully');
+  } catch (error) {
+    console.log('Proofreader init failed (this is normal if no origin trial token):', error);
+    proofreaderSession = null;
+  } finally {
+    isInitializingProofreader = false;
+  }
+}
+
 // Keep service worker alive during background processing
 let keepAliveInterval: number | null = null;
 
@@ -144,11 +190,13 @@ function stopKeepAlive() {
 // Initialize on extension load (when service worker starts)
 initializeAISession();
 initializeSummarizer();
+initializeProofreader();
 
 // Initialize when Chrome browser starts
 chrome.runtime.onStartup.addListener(() => {
   initializeAISession();
   initializeSummarizer();
+  initializeProofreader();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -162,6 +210,7 @@ chrome.runtime.onInstalled.addListener(() => {
   // Initialize AI session
   initializeAISession();
   initializeSummarizer();
+  initializeProofreader();
 });
 
 // Listen for messages from content scripts or popup
@@ -379,6 +428,72 @@ Generate title:`;
         initializeSummarizer();
         
         sendResponse({ success: false, error: `Failed: ${(error as Error).message}` });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'proofreadText') {
+    (async () => {
+      try {
+        // Check if Proofreader API is available in the browser
+        // @ts-ignore
+        if (typeof Proofreader === 'undefined') {
+          sendResponse({ 
+            success: false, 
+            error: 'Proofreader API not available. Enable chrome://flags/#proofreader-api-for-gemini-nano and chrome://flags/#optimization-guide-on-device-model, then restart Chrome.',
+            notAvailable: true
+          });
+          return;
+        }
+
+        // Initialize session if not already done
+        if (!proofreaderSession && !isInitializingProofreader) {
+          await initializeProofreader();
+        }
+        
+        // Wait for session to be ready if it's initializing
+        let waitCount = 0;
+        while (isInitializingProofreader && waitCount < 100) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          waitCount++;
+        }
+        
+        if (!proofreaderSession) {
+          sendResponse({ 
+            success: false, 
+            error: 'Proofreader not available. See PROOFREADER_SETUP.md for setup instructions.',
+            notAvailable: true
+          });
+          return;
+        }
+
+        const proofreadResult = await proofreaderSession.proofread(message.text);
+        
+        console.log('Proofread result:', proofreadResult);
+        
+        // Extract the corrected text and corrections
+        // The API returns 'correctedInput' property with the fixed text
+        const correctedText = proofreadResult.correctedInput || message.text;
+        const corrections = proofreadResult.corrections || [];
+        
+        sendResponse({ 
+          success: true, 
+          correctedText: correctedText,
+          corrections: corrections,
+          hasCorrections: corrections.length > 0
+        });
+      } catch (error) {
+        console.error('Proofreading error:', error);
+        
+        // Reset session on error and try to reinitialize
+        proofreaderSession = null;
+        initializeProofreader();
+        
+        sendResponse({ 
+          success: false, 
+          error: `Proofreader failed: ${(error as Error).message}. Check console for details.` 
+        });
       }
     })();
     return true;

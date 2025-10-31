@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ExternalLink, Edit2, Copy, Trash2, X, Plus } from 'lucide-react';
+import { Search, ExternalLink, Edit2, Copy, Trash2, X, Plus, CheckCircle2 } from 'lucide-react';
 import { Button, Card, Tag, Input, Textarea, Toast } from './lib/ui';
 
 interface CapturedSolution {
@@ -48,6 +48,8 @@ function App() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedSolution, setEditedSolution] = useState<CapturedSolution | null>(null);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+  const [isProofreading, setIsProofreading] = useState(false);
+  const [proofreaderAvailable, setProofreaderAvailable] = useState<boolean | null>(null);
   const [newTag, setNewTag] = useState('');
   const [detailPanelWidth, setDetailPanelWidth] = useState(0); // Will be initialized to 66% on mount
   const [isResizing, setIsResizing] = useState(false);
@@ -378,6 +380,61 @@ function App() {
         showToast('Tags generated', 'success');
       } else {
         showToast(response?.error || 'Failed to generate tags', 'error');
+      }
+    });
+  };
+
+  const proofreadNotes = async () => {
+    if (!editedSolution || !editedSolution.notes || editedSolution.notes.trim() === '') {
+      showToast('No notes to proofread', 'info');
+      return;
+    }
+
+    setIsProofreading(true);
+    
+    console.log('Original notes:', editedSolution.notes);
+    
+    chrome.runtime.sendMessage({
+      action: 'proofreadText',
+      text: editedSolution.notes
+    }, (response) => {
+      setIsProofreading(false);
+      
+      console.log('Proofread response:', response);
+      
+      if (chrome.runtime.lastError) {
+        showToast('Failed to proofread notes', 'error');
+        setProofreaderAvailable(false);
+        return;
+      }
+
+      if (response && response.success) {
+        console.log('Corrected text:', response.correctedText);
+        console.log('Has corrections:', response.hasCorrections);
+        console.log('Number of corrections:', response.corrections?.length);
+        
+        // Mark as available on first success
+        if (proofreaderAvailable === null) {
+          setProofreaderAvailable(true);
+        }
+        
+        // Always update with corrected text, even if no corrections
+        setEditedSolution({
+          ...editedSolution,
+          notes: response.correctedText
+        });
+        
+        if (response.hasCorrections) {
+          showToast(`Fixed ${response.corrections.length} mistake${response.corrections.length !== 1 ? 's' : ''}`, 'success');
+        } else {
+          showToast('No corrections needed!', 'success');
+        }
+      } else {
+        // If it's not available, hide the button
+        if (response?.notAvailable) {
+          setProofreaderAvailable(false);
+        }
+        showToast(response?.error || 'Failed to proofread notes', 'error');
       }
     });
   };
@@ -900,13 +957,32 @@ function App() {
                         </div>
                       </div>
 
-                      <Textarea
-                        label="Notes"
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-xs font-semibold text-black/70 dark:text-white uppercase tracking-wide">
+                            Notes
+                          </label>
+                          {proofreaderAvailable !== false && (
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={proofreadNotes}
+                              isLoading={isProofreading}
+                              disabled={isProofreading || !editedSolution.notes?.trim()}
+                              title="Check grammar, spelling, and punctuation"
+                            >
+                              <CheckCircle2 className="w-3 h-3" />
+                              Proofread
+                            </Button>
+                          )}
+                        </div>
+                        <Textarea
                           value={editedSolution.notes || ''}
                           onChange={(e) => setEditedSolution({ ...editedSolution, notes: e.target.value })}
-                        rows={4}
-                        placeholder="Add your notes..."
-                      />
+                          rows={4}
+                          placeholder="Add your notes..."
+                        />
+                      </div>
 
                       <div className="flex gap-2 pt-4">
                         <Button onClick={saveEdits} className="flex-1">
