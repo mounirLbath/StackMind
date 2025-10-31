@@ -163,7 +163,9 @@ function App() {
   const filteredSolutions = solutions.filter(s => 
     s.text.toLowerCase().includes(filter.toLowerCase()) ||
     s.title.toLowerCase().includes(filter.toLowerCase()) ||
-    (s.notes && s.notes.toLowerCase().includes(filter.toLowerCase()))
+    (s.notes && s.notes.toLowerCase().includes(filter.toLowerCase())) ||
+    (s.tags && s.tags.some(tag => tag.toLowerCase().includes(filter.toLowerCase()))) ||
+    (s.summary && s.summary.toLowerCase().includes(filter.toLowerCase()))
   );
 
   const formatDate = (timestamp: number) => {
