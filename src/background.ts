@@ -430,15 +430,102 @@ Generate title:`;
         task.status = 'completed';
         notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle });
         
-        // Show notification in the source tab
-        if (sourceTabId) {
-          chrome.tabs.sendMessage(sourceTabId, {
-            action: 'showCompletionNotification',
-            title: results.title || pageTitle || 'Solution saved successfully!'
-          }).catch(() => {
-            // Tab might be closed, that's fine
+        // Show notification on the currently active tab by injecting it directly
+        chrome.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
+          if (tabs[0]?.id) {
+            const tabId = tabs[0].id;
+            const notificationTitle = results.title || pageTitle || 'Solution saved successfully!';
+            
+            try {
+              // Inject notification directly into the page
+              await chrome.scripting.executeScript({
+                target: { tabId },
+                func: (title: string) => {
+                  const notification = document.createElement('div');
+                  notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    right: 20px;
+                    background: #ffffff;
+                    color: #212121;
+                    padding: 16px 20px;
+                    border: 1px solid #4caf50;
+                    border-left: 4px solid #4caf50;
+                    border-radius: 4px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    z-index: 999999;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 14px;
+                    font-weight: 500;
+                    max-width: 350px;
+                    animation: slideInRight 0.3s ease;
+                  `;
+                  
+                  notification.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                      <div style="flex-shrink: 0; width: 24px; height: 24px; background: #4caf50; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">✓</div>
+                      <div style="flex: 1;">
+                        <div style="font-weight: 600; margin-bottom: 2px;">MindStack</div>
+                        <div style="font-size: 13px; color: #616161;">${title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+                      </div>
+                    </div>
+                  `;
+                  
+                  const style = document.createElement('style');
+                  style.textContent = `
+                    @keyframes slideInRight {
+                      from { transform: translateX(400px); opacity: 0; }
+                      to { transform: translateX(0); opacity: 1; }
+                    }
+                  `;
+                  
+                  document.head.appendChild(style);
+                  document.body.appendChild(notification);
+                  
+                  setTimeout(() => {
+                    notification.style.animation = 'slideOutRight 0.3s ease';
+                    notification.style.transform = 'translateX(400px)';
+                    notification.style.opacity = '0';
+                    setTimeout(() => {
+                      notification.remove();
+                      style.remove();
+                    }, 300);
+                  }, 4000);
+                },
+                args: [notificationTitle]
+              });
+            } catch (error) {
+              console.log('Could not inject notification:', error);
+              // Fallback to Chrome notification
+              chrome.notifications.create({
+                type: 'basic',
+                title: 'MindStack',
+                message: `Solution saved: ${notificationTitle}`,
+                iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
+                priority: 2
+              });
+            }
+          } else {
+            // No active tab, show Chrome notification
+            chrome.notifications.create({
+              type: 'basic',
+              title: 'MindStack',
+              message: `Solution saved: ${results.title || pageTitle}`,
+              iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
+              priority: 2
+            });
+          }
+        }).catch((error) => {
+          console.log('Could not query active tab:', error);
+          // Fallback to Chrome notification
+          chrome.notifications.create({
+            type: 'basic',
+            title: 'MindStack',
+            message: `Solution saved: ${results.title || pageTitle}`,
+            iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
+            priority: 2
           });
-        }
+        });
         
         // Remove task after 3 seconds
         setTimeout(() => {
@@ -450,17 +537,6 @@ Generate title:`;
             stopKeepAlive();
           }
         }, 3000);
-
-        // Show Chrome notification as backup (only if tab notification failed)
-        if (!sourceTabId) {
-          chrome.notifications.create({
-            type: 'basic',
-            title: 'MindStack',
-            message: 'Solution processed and saved successfully!',
-            iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
-            priority: 2
-          });
-        }
 
       } catch (error) {
         console.error('Background processing error:', error);

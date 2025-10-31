@@ -10,7 +10,8 @@
         "activeTab",
         "storage",
         "contextMenus",
-        "notifications"
+        "notifications",
+        "scripting"
     ],
     "host_permissions": [
         "https://stackoverflow.com/*",
