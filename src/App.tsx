@@ -70,69 +70,38 @@ function App() {
   };
 
   const generateTags = async (solution: CapturedSolution) => {
-    try {
-      // @ts-ignore - Chrome Prompt API is experimental
-      const availability = await LanguageModel.availability();
-      
-      if (availability === 'unavailable') {
-        alert('Chrome Prompt API is not available. Make sure you are using Chrome 128+ with AI features enabled.');
+    chrome.runtime.sendMessage({
+      action: 'generateTags',
+      title: solution.title,
+      text: solution.text.substring(0, 500)
+    }, (response) => {
+      if (chrome.runtime.lastError) {
+        alert('Failed to generate tags. Please try again.');
         return;
       }
 
-      // Create session
-      // @ts-ignore
-      const session = await LanguageModel.create({
-        monitor(m: any) {
-          m.addEventListener('downloadprogress', (e: any) => {
-            console.log(`Downloaded ${e.loaded * 100}%`);
-          });
-        },
-      });
+      if (response && response.success && response.tags) {
+        // Update the solution with tags
+        const updatedSolutions = solutions.map(s => 
+          s.id === solution.id ? { ...s, tags: response.tags } : s
+        );
+        setSolutions(updatedSolutions);
+        
+        // Also update selected solution if it's the same
+        if (selectedSolution?.id === solution.id) {
+          setSelectedSolution({ ...selectedSolution, tags: response.tags });
+        }
 
-      console.log("Generating tags for solution:", solution);
-      const promptText = [
-        { role: 'system', content: 'You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.' },
-        { role: 'user', content: `Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
-
-Generate tags for this programming solution:
-
-Title: ${solution.title}
-
-Solution: ${solution.text.substring(0, 500)}...
-
-Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):` },
-      ];
-            
-      const result = await session.prompt(promptText);
-      
-      console.log('Result:', result);
-
-      // Parse the tags
-      const tags = result.split(',').map((tag: string) => tag.trim().toLowerCase()).filter((tag: string) => tag.length > 0);
-      
-      // Update the solution with tags
-      const updatedSolutions = solutions.map(s => 
-        s.id === solution.id ? { ...s, tags } : s
-      );
-      setSolutions(updatedSolutions);
-      
-      // Also update selected solution if it's the same
-      if (selectedSolution?.id === solution.id) {
-        setSelectedSolution({ ...selectedSolution, tags });
+        // Save to storage
+        chrome.runtime.sendMessage({ 
+          action: 'updateSolution', 
+          id: solution.id, 
+          updates: { tags: response.tags } 
+        });
+      } else {
+        alert(response?.error || 'Failed to generate tags. Please try again.');
       }
-
-      // Save to storage
-      chrome.runtime.sendMessage({ 
-        action: 'updateSolution', 
-        id: solution.id, 
-        updates: { tags } 
-      });
-
-      session.destroy();
-    } catch (error) {
-      console.error('Error generating tags:', error);
-      alert('Failed to generate tags. Error: ' + (error as Error).message);
-    }
+    });
   };
 
   const filteredSolutions = solutions.filter(s => 
