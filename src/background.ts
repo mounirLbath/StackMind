@@ -80,11 +80,10 @@ async function initializeSummarizer() {
 
     // @ts-ignore
     summarizerSession = await Summarizer.create({
-      type: 'key-points',
+      type: 'tldr',
       format: 'markdown',
       length: 'short',
       outputLanguage: "en",
-      sharedContext: 'This is a programming solution from Stack Overflow',
       monitor(m: any) {
         m.addEventListener('downloadprogress', (e: any) => {
           console.log(`Summarizer model: ${Math.round(e.loaded * 100)}%`);
