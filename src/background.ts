@@ -437,7 +437,7 @@ chrome.runtime.onInstalled.addListener(() => {
   // Console Recall: Attach to all existing tabs (if enabled)
   chrome.tabs.query({}, (tabs) => {
     tabs.forEach(tab => {
-      if (tab.id && tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+      if (tab.id && tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://') || tab.url.startsWith('file://'))) {
         attachDebuggerToTab(tab.id);
       }
     });
@@ -811,10 +811,10 @@ Generate title:`;
       await chrome.storage.local.set({ consoleRecallEnabled: enabled });
       
       if (enabled) {
-        // Reattach to all http/https tabs
+        // Reattach to all http/https/file tabs
         chrome.tabs.query({}, (tabs) => {
           tabs.forEach(tab => {
-            if (tab.id && tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+            if (tab.id && tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://') || tab.url.startsWith('file://'))) {
               attachDebuggerToTab(tab.id);
             }
           });
@@ -1058,21 +1058,25 @@ Title:`;
         }
         
         // Also notify the active tab if matches found (even if user navigated away)
-        if (matches.length > 0) {
-          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            const activeTab = tabs[0];
-            if (activeTab?.id) {
-              chrome.tabs.sendMessage(activeTab.id, {
-                action: 'showSearchMatches',
-                matches: matches,
-                searchQuery: searchQuery,
-                keywords: keywords
-              }).catch(() => {
-                // Tab might not have content script, ignore
-              });
-            }
-          });
-        }
+        // But only if Google search notifications are enabled
+        chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+          const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+          if (enabled && matches.length > 0) {
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+              const activeTab = tabs[0];
+              if (activeTab?.id) {
+                chrome.tabs.sendMessage(activeTab.id, {
+                  action: 'showSearchMatches',
+                  matches: matches,
+                  searchQuery: searchQuery,
+                  keywords: keywords
+                }).catch(() => {
+                  // Tab might not have content script, ignore
+                });
+              }
+            });
+          }
+        });
       } catch (error) {
         console.error('Search error:', error);
         // Ensure we always send a response, even on error
@@ -1129,57 +1133,70 @@ Keywords:`;
   }
 }
 
-// Search solutions using the same logic as App.tsx
+// Search solutions using minisearch for better matching and ranking
 async function searchSolutions(query: string): Promise<any[]> {
   try {
-    const storageResult = await chrome.storage.local.get(['solutions']);
-    const solutions = storageResult.solutions || [];
-    
     if (!query || !query.trim()) {
       return [];
     }
     
-    // Split keywords by space and filter out empty strings
-    const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 0);
-    
-    // If no valid keywords, return empty
-    if (keywords.length === 0) {
-      return [];
+    // Ensure index is initialized
+    if (!searchIndex && !isIndexInitializing) {
+      await initializeSearchIndex();
     }
     
-    // Search for solutions that match ANY of the keywords (same logic as App.tsx)
-    // Also check if the full query string matches (for exact phrase matches)
-    const lowerQuery = query.toLowerCase();
+    // Wait for index if initializing
+    let waitCount = 0;
+    while (isIndexInitializing && waitCount < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitCount++;
+    }
     
-    const filtered = solutions.filter((s: any) => {
-      const textLower = s.text.toLowerCase();
-      const titleLower = s.title.toLowerCase();
-      const notesLower = s.notes ? s.notes.toLowerCase() : '';
-      const summaryLower = s.summary ? s.summary.toLowerCase() : '';
-      const tagsLower = s.tags ? s.tags.map((tag: string) => tag.toLowerCase()) : [];
-      
-      // First check for exact phrase match (full query string)
-      if (textLower.includes(lowerQuery) || 
-          titleLower.includes(lowerQuery) || 
-          notesLower.includes(lowerQuery) || 
-          summaryLower.includes(lowerQuery)) {
-        return true;
-      }
-      
-      // Then check if any keyword matches
-      return keywords.some(keyword => 
-        textLower.includes(keyword) ||
-        titleLower.includes(keyword) ||
-        notesLower.includes(keyword) ||
-        summaryLower.includes(keyword) ||
-        tagsLower.some((tag: string) => tag.includes(keyword))
-      );
-    });
+    if (!searchIndex) {
+      // Fallback to token overlap if index not available
+      const storageResult = await chrome.storage.local.get(['solutions']);
+      const solutions = storageResult.solutions || [];
+      const bestMatch = tokenOverlapMatch(query, solutions);
+      return bestMatch ? [bestMatch] : [];
+    }
     
-    return filtered;
+    // Use minisearch for better ranking
+    const results = searchIndex.search(query, {
+      boost: { title: 2, text: 1, notes: 1.5, summary: 1.2 },
+      fuzzy: 0.2,
+      prefix: true
+    }).slice(0, 10); // Limit to top 10 results
+    
+    if (results.length === 0) {
+      // Fallback to token overlap if no results
+      const storageResult = await chrome.storage.local.get(['solutions']);
+      const solutions = storageResult.solutions || [];
+      const bestMatch = tokenOverlapMatch(query, solutions);
+      return bestMatch ? [bestMatch] : [];
+    }
+    
+    // Get full solution data for results
+    const storageResult = await chrome.storage.local.get(['solutions']);
+    const solutions = storageResult.solutions || [];
+    
+    // Map search results to full solution objects, maintaining order by score
+    const matchedSolutions = results
+      .map(result => solutions.find((s: any) => s.id === result.id))
+      .filter((s): s is any => s !== undefined); // Filter out undefined
+    
+    return matchedSolutions;
   } catch (error) {
     console.error('Search solutions error:', error);
-    return [];
+    // Fallback to token overlap on error
+    try {
+      const storageResult = await chrome.storage.local.get(['solutions']);
+      const solutions = storageResult.solutions || [];
+      const bestMatch = tokenOverlapMatch(query, solutions);
+      return bestMatch ? [bestMatch] : [];
+    } catch (fallbackError) {
+      console.error('Fallback search error:', fallbackError);
+      return [];
+    }
   }
 }
 
@@ -1241,22 +1258,25 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
             // Search solutions
             const matches = await searchSolutions(keywords);
             
-            // Notify the active tab if matches found
-            if (matches.length > 0) {
-              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                const activeTab = tabs[0];
-                if (activeTab?.id) {
-                  chrome.tabs.sendMessage(activeTab.id, {
-                    action: 'showSearchMatches',
-                    matches: matches,
-                    searchQuery: query.trim(),
-                    keywords: keywords
-                  }).catch(() => {
-                    // Tab might not have content script, ignore
-                  });
-                }
-              });
-            }
+            // Notify the active tab if matches found (only if enabled)
+            chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+              const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+              if (enabled && matches.length > 0) {
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                  const activeTab = tabs[0];
+                  if (activeTab?.id) {
+                    chrome.tabs.sendMessage(activeTab.id, {
+                      action: 'showSearchMatches',
+                      matches: matches,
+                      searchQuery: query.trim(),
+                      keywords: keywords
+                    }).catch(() => {
+                      // Tab might not have content script, ignore
+                    });
+                  }
+                });
+              }
+            });
           } catch (error) {
             console.error('Background search error:', error);
           }
@@ -1292,22 +1312,25 @@ chrome.omnibox.onInputEntered.addListener((text, disposition) => {
       // Search solutions
       const matches = await searchSolutions(keywords);
       
-      // Notify the active tab if matches found
-      if (matches.length > 0) {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          const activeTab = tabs[0];
-          if (activeTab?.id) {
-            chrome.tabs.sendMessage(activeTab.id, {
-              action: 'showSearchMatches',
-              matches: matches,
-              searchQuery: text.trim(),
-              keywords: keywords
-            }).catch(() => {
-              // Tab might not have content script, ignore
-            });
-          }
-        });
-      }
+      // Notify the active tab if matches found (only if enabled)
+      chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+        const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+        if (enabled && matches.length > 0) {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const activeTab = tabs[0];
+            if (activeTab?.id) {
+              chrome.tabs.sendMessage(activeTab.id, {
+                action: 'showSearchMatches',
+                matches: matches,
+                searchQuery: text.trim(),
+                keywords: keywords
+              }).catch(() => {
+                // Tab might not have content script, ignore
+              });
+            }
+          });
+        }
+      });
     } catch (error) {
       console.error('Omnibox search error:', error);
     }
@@ -1343,21 +1366,55 @@ chrome.debugger.onEvent.addListener((source, method, params: any) => {
     const exception = params.exceptionDetails;
     if (!exception) return;
     
-    const errorText = exception.exception?.description || exception.text || '';
+    // Extract error text from multiple possible fields
+    let errorText = '';
+    if (exception.exception) {
+      // Try different fields for error message
+      if (exception.exception.description) {
+        errorText = exception.exception.description;
+      } else if (exception.exception.value) {
+        errorText = exception.exception.value;
+      } else if (exception.exception.className) {
+        // Construct error message from className
+        const desc = exception.exception.description || exception.exception.value || '';
+        errorText = desc ? `${exception.exception.className}: ${desc}` : exception.exception.className;
+      }
+    }
+    
+    // Fallback to text field
+    if (!errorText && exception.text) {
+      errorText = exception.text;
+    }
+    
+    // Also include exception type if available
+    if (exception.exception?.className && !errorText.includes(exception.exception.className)) {
+      errorText = `${exception.exception.className}: ${errorText}`.trim();
+    }
+    
+    // If still no error text, try to construct from available fields
+    if (!errorText && exception.exception?.className) {
+      errorText = exception.exception.className;
+    }
+    
     const stackFrame = exception.stackTrace?.callFrames?.[0];
     const stackFrameText = stackFrame 
       ? `${stackFrame.functionName || '(anonymous)'} @ ${stackFrame.url || ''}:${stackFrame.lineNumber || 0}`
       : undefined;
     
-    if (errorText) {
+    // Combine error text with stack frame info for better matching
+    const searchText = errorText ? 
+      (stackFrameText ? `${errorText} ${stackFrameText}` : errorText) : 
+      stackFrameText;
+    
+    if (searchText && searchText.trim().length >= 3) {
       (async () => {
-        const matchedNote = await findMatchingNote(errorText, stackFrameText);
+        const matchedNote = await findMatchingNote(errorText || searchText, stackFrameText);
         if (matchedNote) {
           chrome.tabs.sendMessage(tabId, {
             action: 'showConsoleRecall',
             noteId: matchedNote.id,
             noteTitle: matchedNote.title,
-            errorText: errorText.substring(0, 200) // Limit length for display
+            errorText: (errorText || searchText).substring(0, 200) // Limit length for display
           }).catch(() => {
             // Tab might not have content script, ignore
           });
@@ -1426,7 +1483,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
   if (!consoleRecallEnabled) return;
   
   chrome.tabs.get(activeInfo.tabId, (tab) => {
-    if (tab?.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+    if (tab?.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://') || tab.url.startsWith('file://'))) {
       attachDebuggerToTab(activeInfo.tabId);
     }
   });
@@ -1436,7 +1493,7 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   // Only handle debugger attachment if enabled
   if (consoleRecallEnabled && changeInfo.status === 'loading' && tab?.url && 
-      (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+      (tab.url.startsWith('http://') || tab.url.startsWith('https://') || tab.url.startsWith('file://'))) {
     // Detach first if attached
     if (attachedTabs.has(tabId)) {
       detachDebuggerFromTab(tabId);

@@ -6,9 +6,7 @@ class SolutionCapture {
   private capturePanel: HTMLDivElement | null = null;
   private selectedText: string = '';
   private currentTaskId: string | null = null;
-  private consoleRecallOverlay: HTMLDivElement | null = null;
-  private lastRecallNoteId: string | null = null;
-  private lastRecallTime: number = 0;
+  private consoleRecallOverlays: Map<string, HTMLDivElement> = new Map();
 
   constructor() {
     this.init();
@@ -732,194 +730,158 @@ class SolutionCapture {
       return;
     }
 
-    const notification = document.createElement('div');
-    notification.id = 'stackmind-search-notification';
-    notification.style.cssText = `
-      position: fixed;
-      top: 24px;
-      right: 24px;
-      backdrop-filter: blur(16px) saturate(180%);
-      background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-left: 4px solid #4285F4;
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
-      z-index: 10004;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
-      max-width: 450px;
-      animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    `;
+    // Check if Google search notifications are enabled
+    chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+      const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+      if (!enabled) {
+        return; // Don't show if disabled
+      }
 
-    const matchCount = matches.length;
-    const maxPreview = Math.min(matchCount, 3);
+      const notification = document.createElement('div');
+      notification.id = 'stackmind-search-notification';
+      notification.style.cssText = `
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        backdrop-filter: blur(16px) saturate(180%);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-left: 4px solid #4285F4;
+        padding: 12px 16px;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(66, 133, 244, 0.2), 0 2px 8px rgba(0, 0, 0, 0.08);
+        z-index: 10004;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        max-width: 420px;
+        animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      `;
 
-    notification.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 12px;">
-        <div style="display: flex; align-items: start; gap: 12px;">
-          <div style="flex-shrink: 0; margin-top: 2px;">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="10" cy="10" r="10" fill="#4285F4"/>
-              <path d="M8 7L12 10L8 13" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+      const bestMatch = matches[0]; // Get the best/closest matching solution
+      const queryText = searchQuery.length > 50 ? searchQuery.substring(0, 50) + '...' : searchQuery;
+      const matchTitle = bestMatch?.title ? (bestMatch.title.length > 35 ? bestMatch.title.substring(0, 35) + '...' : bestMatch.title) : 'Untitled Solution';
+
+      notification.innerHTML = `
+        <div style="flex-shrink: 0; font-size: 16px; margin-top: 2px;">🔍</div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a; font-size: 13px;">
+            Found match: ${this.escapeHtml(matchTitle)}
           </div>
-          <div style="flex: 1;">
-            <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a;">Found ${matchCount} Matching Solution${matchCount !== 1 ? 's' : ''}</div>
-            <div style="font-size: 12px; color: #4a4a4a; margin-bottom: 12px;">For: "${this.escapeHtml(searchQuery)}"</div>
-            
-            ${matches.slice(0, maxPreview).map((match, idx) => `
-              <div style="
-                margin-bottom: ${idx < maxPreview - 1 ? '10px' : '0'};
-                padding: 10px;
-                background: rgba(66, 133, 244, 0.08);
-                border-radius: 8px;
-                border-left: 2px solid #4285F4;
-                cursor: pointer;
-                transition: all 0.2s;
-              " 
-              class="solution-match-preview"
-              data-solution-id="${match.id}"
-              onmouseover="this.style.background='rgba(66, 133, 244, 0.15)'; this.style.transform='translateX(2px)';"
-              onmouseout="this.style.background='rgba(66, 133, 244, 0.08)'; this.style.transform='translateX(0)';">
-                <div style="font-weight: 600; font-size: 13px; color: #1a1a1a; margin-bottom: 4px;">${this.escapeHtml(match.title || 'Untitled Solution')}</div>
-                <div style="font-size: 11px; color: #4a4a4a; line-height: 1.4;">
-                  ${match.summary ? this.escapeHtml(match.summary.substring(0, 80)) + '...' : (match.text ? this.escapeHtml(match.text.substring(0, 80)) + '...' : '')}
-                </div>
-                ${match.tags && match.tags.length > 0 ? `
-                  <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;">
-                    ${match.tags.slice(0, 3).map((tag: string) => `
-                      <span style="font-size: 9px; background: rgba(66, 133, 244, 0.2); color: #4285F4; padding: 2px 6px; border-radius: 4px;">${this.escapeHtml(tag)}</span>
-                    `).join('')}
-                  </div>
-                ` : ''}
-              </div>
-            `).join('')}
-            
-            ${matchCount > maxPreview ? `
-              <div style="font-size: 11px; color: #737373; margin-top: 8px; text-align: center;">
-                +${matchCount - maxPreview} more solution${matchCount - maxPreview !== 1 ? 's' : ''}
-              </div>
-            ` : ''}
-            
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
-              <button 
-                id="view-all-matches"
-                style="
-                  flex: 1;
-                  padding: 8px 12px;
-                  background: #4285F4;
-                  color: white;
-                  border: none;
-                  border-radius: 6px;
-                  font-size: 12px;
-                  font-weight: 600;
-                  cursor: pointer;
-                  transition: all 0.2s;
-                "
-                onmouseover="this.style.background='#357ae8'; this.style.transform='translateY(-1px)';"
-                onmouseout="this.style.background='#4285F4'; this.style.transform='translateY(0)';">
-                View All
-              </button>
-              <button 
-                id="close-search-notification"
-                style="
-                  padding: 8px 12px;
-                  background: rgba(0, 0, 0, 0.05);
-                  color: #1a1a1a;
-                  border: none;
-                  border-radius: 6px;
-                  font-size: 12px;
-                  font-weight: 500;
-                  cursor: pointer;
-                  transition: all 0.2s;
-                "
-                onmouseover="this.style.background='rgba(0, 0, 0, 0.1)';"
-                onmouseout="this.style.background='rgba(0, 0, 0, 0.05)';">
-                Close
-              </button>
-            </div>
-          </div>
+          <div style="
+            font-size: 11px; 
+            color: #666; 
+            font-family: 'Courier New', monospace;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 6px 8px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            word-break: break-word;
+            line-height: 1.3;
+          ">${this.escapeHtml(queryText)}</div>
+          <div style="font-size: 11px; color: #4a4a4a;">Click to open solution</div>
         </div>
-      </div>
-    `;
+        <button id="stackmind-search-open" style="
+          background: #4285F4;
+          color: white;
+          border: none;
+          padding: 6px 12px;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+          flex-shrink: 0;
+          margin-top: 2px;
+        " onmouseover="this.style.background='#357ae8'; this.style.transform='scale(1.05)';" onmouseout="this.style.background='#4285F4'; this.style.transform='scale(1)';">Open</button>
+      `;
 
-    document.body.appendChild(notification);
+      notification.onmouseenter = () => {
+        notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.95))';
+        notification.style.transform = 'translateY(-2px)';
+        notification.style.boxShadow = '0 12px 40px rgba(66, 133, 244, 0.3), 0 4px 12px rgba(0, 0, 0, 0.1)';
+      };
 
-    // Handle clicks on solution previews
-    notification.querySelectorAll('.solution-match-preview').forEach(preview => {
-      preview.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const solutionId = (preview as HTMLElement).getAttribute('data-solution-id');
-        if (solutionId) {
-          try {
-            if (!this.checkExtensionContext()) return;
-            // Open extension window with the specific solution ID
-            chrome.runtime.sendMessage({ 
-              action: 'openExtensionWindow',
-              solutionId: solutionId
-            });
-            notification.style.animation = 'slideOutToTop 0.14s ease-out';
-            setTimeout(() => notification.remove(), 140);
-          } catch (e) {
-            console.warn('MindStack: Cannot open extension window');
-          }
+      notification.onmouseleave = () => {
+        notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9))';
+        notification.style.transform = 'translateY(0)';
+        notification.style.boxShadow = '0 8px 32px rgba(66, 133, 244, 0.2), 0 2px 8px rgba(0, 0, 0, 0.08)';
+      };
+
+      const handleOpen = () => {
+        try {
+          if (!this.checkExtensionContext()) return;
+          
+          // Open extension window with the best matching solution ID
+          chrome.runtime.sendMessage({
+            action: 'openExtensionWindow',
+            solutionId: bestMatch?.id
+          });
+          
+          // Hide overlay
+          notification.style.animation = 'slideOutToTop 0.14s ease-out';
+          setTimeout(() => {
+            if (document.body.contains(notification)) {
+              notification.remove();
+            }
+          }, 140);
+        } catch (e) {
+          console.warn('MindStack: Cannot open extension window:', e);
+          this.showReloadNotification();
         }
+      };
+
+      // Click anywhere on overlay or the Open button
+      notification.onclick = handleOpen;
+      const openBtn = notification.querySelector('#stackmind-search-open');
+      openBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleOpen();
       });
-    });
 
-    // Handle "View All" button
-    const viewAllBtn = notification.querySelector('#view-all-matches');
-    viewAllBtn?.addEventListener('click', () => {
-      try {
-        if (!this.checkExtensionContext()) return;
-        chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
-        notification.style.animation = 'slideOutToTop 0.14s ease-out';
-        setTimeout(() => notification.remove(), 140);
-      } catch (e) {
-        console.warn('MindStack: Cannot open extension window');
-      }
-    });
+      document.body.appendChild(notification);
 
-    // Handle close button
-    const closeBtn = notification.querySelector('#close-search-notification');
-    closeBtn?.addEventListener('click', () => {
-      notification.style.animation = 'slideOutToTop 0.14s ease-out';
-      setTimeout(() => notification.remove(), 140);
+      // Auto-dismiss after 8 seconds
+      setTimeout(() => {
+        if (document.body.contains(notification)) {
+          notification.style.animation = 'slideOutToTop 0.14s ease-out';
+          setTimeout(() => {
+            if (document.body.contains(notification)) {
+              notification.remove();
+            }
+          }, 140);
+        }
+      }, 8000);
     });
-
-    // Auto-dismiss after 10 seconds
-    setTimeout(() => {
-      if (document.body.contains(notification)) {
-        notification.style.animation = 'slideOutToTop 0.14s ease-out';
-        setTimeout(() => notification.remove(), 140);
-      }
-    }, 10000);
   }
 
   // Console Recall: Show glass pill overlay notification
   private showConsoleRecallNotification(noteId: string, noteTitle: string, errorText?: string) {
-    // Throttle: Don't show the same note within 5 seconds
-    const now = Date.now();
-    if (noteId === this.lastRecallNoteId && (now - this.lastRecallTime) < 5000) {
+    // Create a unique key for this error+note combination to prevent exact duplicates
+    const errorKey = `${noteId}-${errorText?.substring(0, 50) || Date.now()}`;
+    
+    // Don't show if we already have this exact notification
+    if (this.consoleRecallOverlays.has(errorKey)) {
       return;
     }
-    this.lastRecallNoteId = noteId;
-    this.lastRecallTime = now;
     
-    // Remove existing overlay if present
-    if (this.consoleRecallOverlay) {
-      this.consoleRecallOverlay.remove();
-      this.consoleRecallOverlay = null;
-    }
+    // Calculate vertical position for stacking (count existing notifications)
+    const existingCount = this.consoleRecallOverlays.size;
+    const topOffset = 24 + (existingCount * 90); // 90px spacing between notifications
 
     const overlay = document.createElement('div');
-    this.consoleRecallOverlay = overlay;
-    overlay.id = 'stackmind-console-recall';
+    overlay.id = `stackmind-console-recall-${errorKey}`;
+    overlay.dataset.errorKey = errorKey;
+    this.consoleRecallOverlays.set(errorKey, overlay);
     overlay.style.cssText = `
       position: fixed;
-      top: 24px;
+      top: ${topOffset}px;
       right: 24px;
       backdrop-filter: blur(16px) saturate(180%);
       background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
@@ -1012,7 +974,8 @@ class SolutionCapture {
         setTimeout(() => {
           if (document.body.contains(overlay)) {
             overlay.remove();
-            this.consoleRecallOverlay = null;
+            this.consoleRecallOverlays.delete(errorKey);
+            this.repositionNotifications();
           }
         }, 140);
       } catch (e) {
@@ -1038,11 +1001,22 @@ class SolutionCapture {
         setTimeout(() => {
           if (document.body.contains(overlay)) {
             overlay.remove();
-            this.consoleRecallOverlay = null;
+            this.consoleRecallOverlays.delete(errorKey);
+            this.repositionNotifications();
           }
         }, 140);
       }
     }, 8000);
+  }
+
+  // Reposition all notifications when one is removed
+  private repositionNotifications() {
+    let index = 0;
+    this.consoleRecallOverlays.forEach((overlay) => {
+      const topOffset = 24 + (index * 90);
+      overlay.style.top = `${topOffset}px`;
+      index++;
+    });
   }
 }
 

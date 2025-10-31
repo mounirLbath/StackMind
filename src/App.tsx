@@ -59,6 +59,7 @@ function App() {
     visible: false,
   });
   const [consoleRecallEnabled, setConsoleRecallEnabled] = useState<boolean>(false);
+  const [googleSearchEnabled, setGoogleSearchEnabled] = useState<boolean>(false);
 
 
   // Initialize detail panel width to 66% of container
@@ -152,6 +153,7 @@ function App() {
     loadSolutions();
     loadBackgroundTasks();
     loadConsoleRecallSetting();
+    loadGoogleSearchSetting();
     
     const listener = (message: any) => {
       if (message.action === 'backgroundTaskUpdate') {
@@ -254,6 +256,14 @@ function App() {
     });
   };
 
+  const loadGoogleSearchSetting = () => {
+    chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+      // Default to false if not set
+      const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+      setGoogleSearchEnabled(enabled);
+    });
+  };
+
   const toggleConsoleRecall = (enabled: boolean) => {
     setConsoleRecallEnabled(enabled);
     chrome.storage.local.set({ consoleRecallEnabled: enabled }, () => {
@@ -276,6 +286,25 @@ function App() {
           );
         }
       });
+    });
+  };
+
+  const toggleGoogleSearch = (enabled: boolean) => {
+    setGoogleSearchEnabled(enabled);
+    chrome.storage.local.set({ googleSearchEnabled: enabled }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to toggle Google search:', chrome.runtime.lastError);
+        showToast('Failed to update setting', 'error');
+        // Revert state on error
+        setGoogleSearchEnabled(!enabled);
+      } else {
+        showToast(
+          enabled 
+            ? 'Google Search notifications enabled' 
+            : 'Google Search notifications disabled',
+          'info'
+        );
+      }
     });
   };
 
@@ -595,26 +624,85 @@ function App() {
           <h1 className="text-xl font-semibold text-black/90 dark:text-white">MindStack</h1>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg backdrop-blur-md transition-all duration-300 ${
-            consoleRecallEnabled 
-              ? 'bg-amber-500/15 dark:bg-amber-500/10 border border-amber-500/30 shadow-sm' 
-              : 'bg-white/10 dark:bg-white/5 border border-white/20'
-          }`}>
-            <Bug className={`w-4 h-4 transition-colors duration-300 ${
-              consoleRecallEnabled 
-                ? 'text-amber-600 dark:text-amber-400' 
-                : 'text-black/60 dark:text-white/60'
-            }`} />
-            <Toggle
-              checked={consoleRecallEnabled}
-              onChange={(e) => {
+        <div className="flex items-center gap-2">
+          {/* Features Toggle Group */}
+          <div className="flex items-center gap-1.5 px-2 py-1.5 glass rounded-lg">
+            {/* Console Recall Toggle */}
+            <div 
+              className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-200 cursor-pointer ${
+                consoleRecallEnabled 
+                  ? 'bg-amber-500/20 dark:bg-amber-500/15' 
+                  : 'hover:bg-white/10 dark:hover:bg-white/5'
+              }`}
+              onClick={(e) => {
                 e.stopPropagation();
-                toggleConsoleRecall(e.target.checked);
+                toggleConsoleRecall(!consoleRecallEnabled);
               }}
-              label="Console Recall"
-              title={consoleRecallEnabled ? "Console Recall is enabled - matching errors to notes" : "Console Recall is disabled"}
-            />
+              title={consoleRecallEnabled ? "Console Recall enabled - matching errors to notes" : "Console Recall disabled"}
+            >
+              <Bug className={`w-3.5 h-3.5 transition-colors duration-200 flex-shrink-0 ${
+                consoleRecallEnabled 
+                  ? 'text-amber-600 dark:text-amber-400' 
+                  : 'text-black/50 dark:text-white/50'
+              }`} />
+              <span className={`text-xs font-medium transition-colors duration-200 ${
+                consoleRecallEnabled 
+                  ? 'text-amber-700 dark:text-amber-400' 
+                  : 'text-black/60 dark:text-white/60'
+              }`}>
+                Errors
+              </span>
+              <div onClick={(e) => e.stopPropagation()}>
+                <Toggle
+                  checked={consoleRecallEnabled}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    toggleConsoleRecall(e.target.checked);
+                  }}
+                  className="ml-0.5"
+                />
+              </div>
+            </div>
+
+            {/* Separator */}
+            <div className="w-px h-5 bg-white/20 dark:bg-white/15" />
+
+            {/* Google Search Toggle */}
+            <div 
+              className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-200 cursor-pointer ${
+                googleSearchEnabled 
+                  ? 'bg-blue-500/20 dark:bg-blue-500/15' 
+                  : 'hover:bg-white/10 dark:hover:bg-white/5'
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleGoogleSearch(!googleSearchEnabled);
+              }}
+              title={googleSearchEnabled ? "Google Search notifications enabled" : "Google Search notifications disabled"}
+            >
+              <Search className={`w-3.5 h-3.5 transition-colors duration-200 flex-shrink-0 ${
+                googleSearchEnabled 
+                  ? 'text-blue-600 dark:text-blue-400' 
+                  : 'text-black/50 dark:text-white/50'
+              }`} />
+              <span className={`text-xs font-medium transition-colors duration-200 ${
+                googleSearchEnabled 
+                  ? 'text-blue-700 dark:text-blue-400' 
+                  : 'text-black/60 dark:text-white/60'
+              }`}>
+                Search
+              </span>
+              <div onClick={(e) => e.stopPropagation()}>
+                <Toggle
+                  checked={googleSearchEnabled}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    toggleGoogleSearch(e.target.checked);
+                  }}
+                  className="ml-0.5"
+                />
+              </div>
+            </div>
           </div>
         {solutions.length > 0 && (
             <Button variant="ghost" size="sm" onClick={clearAll}>
