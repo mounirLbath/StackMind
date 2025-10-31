@@ -68,9 +68,13 @@ function App() {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       
+      // Prevent default to avoid text selection during drag
+      e.preventDefault();
+      
       const newWidth = window.innerWidth - e.clientX;
       const minWidth = 300;
-      const maxWidth = window.innerWidth - 400;
+      // Allow detail panel to take up to 80% of the window, leaving at least 200px for the list
+      const maxWidth = window.innerWidth - 200;
       
       setDetailPanelWidth(Math.max(minWidth, Math.min(newWidth, maxWidth)));
     };
@@ -513,9 +517,16 @@ function App() {
               >
                 {/* Resize handle */}
                 <div
-                  className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 transition-colors z-10"
-                  onMouseDown={() => setIsResizing(true)}
-                  style={{ background: isResizing ? '#60a5fa' : 'transparent' }}
+                  className="absolute left-0 top-0 bottom-0 cursor-ew-resize hover:bg-blue-400 transition-colors z-10"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setIsResizing(true);
+                  }}
+                  style={{ 
+                    background: isResizing ? '#60a5fa' : 'transparent',
+                    width: '4px',
+                    marginLeft: '-2px'
+                  }}
                 />
                 
                 <div className="p-3 flex justify-between items-center">
