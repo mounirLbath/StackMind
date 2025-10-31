@@ -1,7 +1,11 @@
+console.log('===== APP.TSX LOADED =====');
+
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, ExternalLink, Edit2, Copy, Trash2, X, Plus, CheckCircle2 } from 'lucide-react';
-import { Button, Card, Tag, Input, Textarea, Toast } from './lib/ui';
+import { Button, Card, Tag, Input, Textarea, Toast, Toggle } from './lib/ui';
+
+console.log('===== APP IMPORTS COMPLETE =====');
 
 interface CapturedSolution {
   id: string;
@@ -13,6 +17,8 @@ interface CapturedSolution {
   questionId?: string;
   notes?: string;
   tags?: string[];
+  embedding?: number[];
+  embeddingVersion?: string;
 }
 
 interface BackgroundTask {
@@ -23,6 +29,7 @@ interface BackgroundTask {
     title: boolean;
     tags: boolean;
     summary: boolean;
+    indexing: boolean;
   };
   pageTitle: string;
   startTime: number;
@@ -53,6 +60,8 @@ function App() {
   const [newTag, setNewTag] = useState('');
   const [detailPanelWidth, setDetailPanelWidth] = useState(0); // Will be initialized to 66% on mount
   const [isResizing, setIsResizing] = useState(false);
+  const [searchMode, setSearchMode] = useState<'keyword' | 'semantic'>('semantic');
+  const [filteredSolutions, setFilteredSolutions] = useState<CapturedSolution[]>([]);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean }>({
     message: '',
     type: 'info',
@@ -148,6 +157,7 @@ function App() {
   }, [isResizing]);
 
   useEffect(() => {
+    console.log('[App] Initializing app...');
     loadSolutions();
     loadBackgroundTasks();
     
@@ -213,15 +223,40 @@ function App() {
 
   const loadSolutions = async () => {
     try {
+      console.log('[App] Loading solutions...');
+      
+      // Add timeout to detect if background script isn't responding
+      const timeout = setTimeout(() => {
+        console.error('[App] TIMEOUT: Background script not responding after 3 seconds');
+        console.error('[App] This usually means the service worker crashed or failed to load');
+        setLoading(false);
+        showToast('Error: Background script not responding. Check service worker console.', 'error');
+      }, 3000);
+      
       chrome.runtime.sendMessage({ action: 'getSolutions' }, (response) => {
+        clearTimeout(timeout);
+        
+        if (chrome.runtime.lastError) {
+          console.error('[App] Chrome runtime error:', chrome.runtime.lastError);
+          setLoading(false);
+          showToast('Error: ' + chrome.runtime.lastError.message, 'error');
+          return;
+        }
+        
+        console.log('[App] Solutions response:', response);
         if (response?.solutions) {
+          console.log('[App] Loaded', response.solutions.length, 'solutions');
           setSolutions(response.solutions);
+        } else {
+          console.log('[App] No solutions in response');
+          setSolutions([]);
         }
         setLoading(false);
       });
     } catch (error) {
-      console.error('Error loading solutions:', error);
+      console.error('[App] Error loading solutions:', error);
       setLoading(false);
+      showToast('Error loading solutions: ' + (error as Error).message, 'error');
     }
   };
 
@@ -439,13 +474,49 @@ function App() {
     });
   };
 
-  const filteredSolutions = solutions.filter(s => 
-    s.text.toLowerCase().includes(filter.toLowerCase()) ||
-    s.title.toLowerCase().includes(filter.toLowerCase()) ||
-    (s.notes && s.notes.toLowerCase().includes(filter.toLowerCase())) ||
-    (s.tags && s.tags.some(tag => tag.toLowerCase().includes(filter.toLowerCase()))) ||
-    (s.summary && s.summary.toLowerCase().includes(filter.toLowerCase()))
-  );
+  // Filter/search solutions based on search mode
+  useEffect(() => {
+    console.log('[App] Filtering solutions. Filter:', filter, 'Mode:', searchMode, 'Solutions:', solutions.length);
+    
+    if (!filter.trim()) {
+      console.log('[App] No filter, showing all solutions');
+      setFilteredSolutions(solutions);
+      return;
+    }
+
+    if (searchMode === 'semantic') {
+      // Use background search for semantic mode
+      console.log('[App] Using semantic search');
+      chrome.runtime.sendMessage({
+        action: 'searchSolutions',
+        searchQuery: filter,
+        searchMode: 'semantic',
+        showOverlay: false
+      }, (response) => {
+        console.log('[App] Semantic search response:', response);
+        if (response?.success && response.matches) {
+          console.log('[App] Found', response.matches.length, 'matches');
+          setFilteredSolutions(response.matches);
+        } else {
+          console.log('[App] Semantic search failed, showing all solutions');
+          // Fallback to showing all solutions if search fails
+          setFilteredSolutions(solutions);
+        }
+      });
+    } else {
+      // Keyword search (local, fast)
+      console.log('[App] Using keyword search');
+      const filtered = solutions.filter(s => 
+        s.text.toLowerCase().includes(filter.toLowerCase()) ||
+        s.title.toLowerCase().includes(filter.toLowerCase()) ||
+        (s.notes && s.notes.toLowerCase().includes(filter.toLowerCase())) ||
+        (s.tags && s.tags.some(tag => tag.toLowerCase().includes(filter.toLowerCase()))) ||
+        (s.summary && s.summary.toLowerCase().includes(filter.toLowerCase()))
+      );
+      console.log('[App] Filtered to', filtered.length, 'solutions');
+      setFilteredSolutions(filtered);
+    }
+  }, [filter, searchMode, solutions]);
 
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -614,6 +685,13 @@ function App() {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 text-sm text-black/90 dark:!text-white bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/15 rounded-lg outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-black/40 dark:placeholder:text-white/40 transition-all"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Toggle
+              checked={searchMode === 'semantic'}
+              onChange={(e) => setSearchMode(e.target.checked ? 'semantic' : 'keyword')}
+              label={searchMode === 'semantic' ? 'Semantic' : 'Keyword'}
             />
           </div>
             <span className="text-xs muted whitespace-nowrap">
