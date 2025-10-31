@@ -424,10 +424,11 @@ class SolutionCapture {
       }
     });
 
-    // Auto-generate title, tags, and summary sequentially
+    // Auto-generate title, format text, generate tags, and generate summary
     await this.generateTitle();
     await this.generateTags();
     await this.generateSummary();
+    await this.formatText();
   }
 
   private hideCapturePanel() {
@@ -489,6 +490,37 @@ class SolutionCapture {
         });
       } catch (error) {
         console.error('Error generating title:', error);
+        resolve();
+      }
+    });
+  }
+
+  private async formatText(): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({
+          action: 'formatText',
+          text: this.selectedText
+        }, (response) => {
+          // Check if panel still exists (user might have switched tabs)
+          if (!this.capturePanel || !document.contains(this.capturePanel)) {
+            resolve();
+            return;
+          }
+          
+          if (chrome.runtime.lastError || !response || !response.success) {
+            // Keep original text if formatting fails
+            resolve();
+            return;
+          }
+
+          // Update the selected text with formatted version
+          this.selectedText = response.formatted;
+          
+          resolve();
+        });
+      } catch (error) {
+        console.error('Error formatting text:', error);
         resolve();
       }
     });
@@ -759,13 +791,54 @@ class SolutionCapture {
   }
 
   private parseMarkdown(markdown: string): string {
-    let html = markdown;
+    // First, extract code blocks to protect them
+    const codeBlocks: string[] = [];
+    let text = markdown.replace(/```[\s\S]*?```/g, (match) => {
+      const placeholder = `___CODE_BLOCK_${codeBlocks.length}___`;
+      codeBlocks.push(match);
+      return placeholder;
+    });
     
-    // Code blocks with backticks
-    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0;"><code>$2</code></pre>');
+    // Extract inline code
+    const inlineCode: string[] = [];
+    text = text.replace(/`[^`]+`/g, (match) => {
+      const placeholder = `___INLINE_CODE_${inlineCode.length}___`;
+      inlineCode.push(match);
+      return placeholder;
+    });
     
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: \'Courier New\', monospace; font-size: 12px; color: #e83e8c;">$1</code>');
+    // Now escape HTML in the remaining text
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+    
+    // Restore and process code blocks
+    codeBlocks.forEach((block, i) => {
+      const code = block.replace(/```(\w+)?\n([\s\S]*?)```/, (_, _lang, content) => {
+        const escapedContent = content
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return `<pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0;"><code>${escapedContent}</code></pre>`;
+      });
+      html = html.replace(`___CODE_BLOCK_${i}___`, code);
+    });
+    
+    // Restore and process inline code
+    inlineCode.forEach((code, i) => {
+      const escapedCode = code
+        .replace(/`([^`]+)`/, (_, content) => {
+          const escaped = content
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          return `<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 12px; color: #e83e8c;">${escaped}</code>`;
+        });
+      html = html.replace(`___INLINE_CODE_${i}___`, escapedCode);
+    });
     
     // Bold
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');

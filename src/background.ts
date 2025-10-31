@@ -286,6 +286,44 @@ Generate title:`;
     return true;
   }
 
+  if (message.action === 'formatText') {
+    (async () => {
+      try {
+        // Initialize session if not already done
+        if (!aiSession && !isInitializingSession) {
+          await initializeAISession();
+        }
+        
+        // Wait for session to be ready if it's initializing
+        let waitCount = 0;
+        while (isInitializingSession && waitCount < 100) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          waitCount++;
+        }
+        
+        if (!aiSession) {
+          sendResponse({ success: false, error: 'AI not available.' });
+          return;
+        }
+
+        const prompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT same text, just add markdown code formatting where appropriate. Do not summarize or change the content:\n\n${message.text}`;
+        
+        const formatted = await aiSession.prompt(prompt);
+        
+        sendResponse({ success: true, formatted: formatted.trim() });
+      } catch (error) {
+        console.error('Text formatting error:', error);
+        
+        // Reset session on error
+        aiSession = null;
+        initializeAISession();
+        
+        sendResponse({ success: false, error: `Failed: ${(error as Error).message}` });
+      }
+    })();
+    return true;
+  }
+
   if (message.action === 'summarizeText') {
     (async () => {
       try {

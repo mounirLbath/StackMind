@@ -28,7 +28,6 @@ function App() {
   const [solutions, setSolutions] = useState<CapturedSolution[]>([]);
   const [selectedSolution, setSelectedSolution] = useState<CapturedSolution | null>(null);
   const [filter, setFilter] = useState('');
-  const [showFullText, setShowFullText] = useState(false);
   const [loading, setLoading] = useState(true);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -250,13 +249,54 @@ function App() {
   };
 
   const parseMarkdown = (markdown: string): string => {
-    let html = markdown;
+    // First, extract code blocks to protect them
+    const codeBlocks: string[] = [];
+    let text = markdown.replace(/```[\s\S]*?```/g, (match) => {
+      const placeholder = `___CODE_BLOCK_${codeBlocks.length}___`;
+      codeBlocks.push(match);
+      return placeholder;
+    });
     
-    // Code blocks with backticks
-    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; font-family: \'Courier New\', monospace;"><code>$2</code></pre>');
+    // Extract inline code
+    const inlineCode: string[] = [];
+    text = text.replace(/`[^`]+`/g, (match) => {
+      const placeholder = `___INLINE_CODE_${inlineCode.length}___`;
+      inlineCode.push(match);
+      return placeholder;
+    });
     
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: \'Courier New\', monospace; font-size: 12px; color: #e83e8c;">$1</code>');
+    // Now escape HTML in the remaining text
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+    
+    // Restore and process code blocks
+    codeBlocks.forEach((block, i) => {
+      const code = block.replace(/```(\w+)?\n([\s\S]*?)```/, (_, _lang, content) => {
+        const escapedContent = content
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        return `<pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; font-family: 'Courier New', monospace;"><code>${escapedContent}</code></pre>`;
+      });
+      html = html.replace(`___CODE_BLOCK_${i}___`, code);
+    });
+    
+    // Restore and process inline code
+    inlineCode.forEach((code, i) => {
+      const escapedCode = code
+        .replace(/`([^`]+)`/, (_, content) => {
+          const escaped = content
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+          return `<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 12px; color: #e83e8c;">${escaped}</code>`;
+        });
+      html = html.replace(`___INLINE_CODE_${i}___`, escapedCode);
+    });
     
     // Bold
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -390,10 +430,7 @@ function App() {
                 <div
                   key={solution.id}
                   className={`px-5 py-4 border-b border-gray-200 cursor-pointer transition-colors hover:bg-gray-50 ${selectedSolution?.id === solution.id ? 'bg-gray-100 border-l-[3px] border-l-gray-700' : ''}`}
-                  onClick={() => {
-                    setSelectedSolution(solution);
-                    setShowFullText(false);
-                  }}
+                  onClick={() => setSelectedSolution(solution)}
                 >
                   <div className="flex justify-between items-start gap-3 mb-2">
                     <div className="flex-1 font-semibold text-[13px] text-gray-900 leading-snug overflow-hidden line-clamp-2">{solution.title}</div>
@@ -565,26 +602,24 @@ function App() {
                         </a>
                       </div>
 
-                      <div className="mb-5">
-                        <div className="flex justify-between items-center mb-2">
-                          <label className="block font-semibold text-[11px] text-gray-700 uppercase tracking-wide">
-                            {selectedSolution.summary && !showFullText ? 'Summary' : 'Full Text'}:
-                          </label>
-                          {selectedSolution.summary && (
-                            <button
-                              onClick={() => setShowFullText(!showFullText)}
-                              className="text-[11px] text-gray-600 hover:text-gray-900 underline"
-                            >
-                              {showFullText ? 'Show Summary' : 'Show Full Text'}
-                            </button>
-                          )}
+                      {selectedSolution.summary && (
+                        <div className="mb-5">
+                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Summary:</label>
+                          <div 
+                            className="bg-blue-50 border border-blue-200 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto break-words"
+                            dangerouslySetInnerHTML={{
+                              __html: parseMarkdown(selectedSolution.summary)
+                            }}
+                          />
                         </div>
+                      )}
+
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Full Text:</label>
                         <div 
                           className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto break-words"
                           dangerouslySetInnerHTML={{
-                            __html: selectedSolution.summary && !showFullText 
-                              ? parseMarkdown(selectedSolution.summary)
-                              : selectedSolution.text.replace(/\n/g, '<br>')
+                            __html: parseMarkdown(selectedSolution.text)
                           }}
                         />
                       </div>
