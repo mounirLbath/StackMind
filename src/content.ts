@@ -424,12 +424,10 @@ class SolutionCapture {
       }
     });
 
-    // Auto-generate title, summary and tags
-    await Promise.all([
-      this.generateTitle(),
-      this.generateSummary(),
-      this.generateTags()
-    ]);
+    // Auto-generate title, tags, and summary sequentially
+    await this.generateTitle();
+    await this.generateTags();
+    await this.generateSummary();
   }
 
   private hideCapturePanel() {
@@ -443,145 +441,163 @@ class SolutionCapture {
     this.generatedSummary = '';
   }
 
-  private async generateTitle() {
-    try {
-      chrome.runtime.sendMessage({
-        action: 'generateTitle',
-        pageTitle: document.title,
-        text: this.selectedText.substring(0, 500)
-      }, (response) => {
-        // Check if panel still exists (user might have switched tabs)
-        if (!this.capturePanel || !document.contains(this.capturePanel)) {
-          return;
-        }
-        
-        const statusEl = document.getElementById('stackmind-title-status');
-        const inputEl = document.getElementById('stackmind-title-input') as HTMLInputElement;
-        
-        if (chrome.runtime.lastError || !response || !response.success) {
-          if (statusEl) {
-            statusEl.style.display = 'none';
+  private async generateTitle(): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({
+          action: 'generateTitle',
+          pageTitle: document.title,
+          text: this.selectedText.substring(0, 500)
+        }, (response) => {
+          // Check if panel still exists (user might have switched tabs)
+          if (!this.capturePanel || !document.contains(this.capturePanel)) {
+            resolve();
+            return;
           }
-          if (inputEl) {
-            inputEl.style.display = 'block';
-            inputEl.placeholder = 'Enter title';
-          }
-          return;
-        }
-
-        this.generatedTitle = response.title;
-        
-        if (statusEl) {
-          statusEl.textContent = response.title;
-          statusEl.style.color = '#212121';
-          statusEl.style.cursor = 'pointer';
-          statusEl.title = 'Click to edit';
-          statusEl.onclick = () => {
-            if (inputEl) {
-              inputEl.value = response.title;
-              inputEl.style.display = 'block';
+          
+          const statusEl = document.getElementById('stackmind-title-status');
+          const inputEl = document.getElementById('stackmind-title-input') as HTMLInputElement;
+          
+          if (chrome.runtime.lastError || !response || !response.success) {
+            if (statusEl) {
               statusEl.style.display = 'none';
             }
-          };
-        }
-      });
-    } catch (error) {
-      console.error('Error generating title:', error);
-    }
-  }
-
-  private async generateSummary() {
-    try {
-      chrome.runtime.sendMessage({
-        action: 'summarizeText',
-        text: this.selectedText
-      }, (response) => {
-        // Check if panel still exists (user might have switched tabs)
-        if (!this.capturePanel || !document.contains(this.capturePanel)) {
-          return;
-        }
-        
-        const statusEl = document.getElementById('stackmind-summary-status');
-        const containerEl = document.getElementById('stackmind-summary-container');
-        
-        if (chrome.runtime.lastError || !response || !response.success) {
-          if (statusEl) {
-            statusEl.textContent = 'Summary not available. Full text will be saved.';
-            setTimeout(() => {
-              if (statusEl && document.contains(statusEl)) {
-                statusEl.style.display = 'none';
-              }
-            }, 3000);
+            if (inputEl) {
+              inputEl.style.display = 'block';
+              inputEl.placeholder = 'Enter title';
+            }
+            resolve();
+            return;
           }
-          return;
-        }
 
-        this.generatedSummary = response.summary;
-        
-        if (statusEl) {
-          statusEl.style.display = 'none';
-        }
-        
-        if (containerEl) {
-          containerEl.innerHTML = this.parseMarkdown(response.summary);
-          containerEl.style.display = 'block';
-        }
-      });
-    } catch (error) {
-      console.error('Error generating summary:', error);
-    }
-  }
-
-  private async generateTags() {
-    try {
-      // Send message to background script to generate tags
-      chrome.runtime.sendMessage({
-        action: 'generateTags',
-        title: document.title,
-        text: this.selectedText.substring(0, 500)
-      }, (response) => {
-        // Check if panel still exists (user might have switched tabs)
-        if (!this.capturePanel || !document.contains(this.capturePanel)) {
-          return;
-        }
-        
-        const statusEl = document.getElementById('stackmind-tags-status');
-        
-        if (chrome.runtime.lastError) {
-          if (statusEl) {
-            statusEl.textContent = 'Failed to generate tags. Add them manually below.';
-            setTimeout(() => {
-              if (statusEl && document.contains(statusEl)) {
-                statusEl.style.display = 'none';
-              }
-            }, 3000);
-          }
-          return;
-        }
-
-        if (response && response.success && response.tags) {
-          // Add generated tags
-          response.tags.forEach((tag: string) => this.addTag(tag));
+          this.generatedTitle = response.title;
           
-          // Hide loading status
+          if (statusEl) {
+            statusEl.textContent = response.title;
+            statusEl.style.color = '#212121';
+            statusEl.style.cursor = 'pointer';
+            statusEl.title = 'Click to edit';
+            statusEl.onclick = () => {
+              if (inputEl) {
+                inputEl.value = response.title;
+                inputEl.style.display = 'block';
+                statusEl.style.display = 'none';
+              }
+            };
+          }
+          resolve();
+        });
+      } catch (error) {
+        console.error('Error generating title:', error);
+        resolve();
+      }
+    });
+  }
+
+  private async generateSummary(): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({
+          action: 'summarizeText',
+          text: this.selectedText
+        }, (response) => {
+          // Check if panel still exists (user might have switched tabs)
+          if (!this.capturePanel || !document.contains(this.capturePanel)) {
+            resolve();
+            return;
+          }
+          
+          const statusEl = document.getElementById('stackmind-summary-status');
+          const containerEl = document.getElementById('stackmind-summary-container');
+          
+          if (chrome.runtime.lastError || !response || !response.success) {
+            if (statusEl) {
+              statusEl.textContent = 'Summary not available. Full text will be saved.';
+              setTimeout(() => {
+                if (statusEl && document.contains(statusEl)) {
+                  statusEl.style.display = 'none';
+                }
+              }, 3000);
+            }
+            resolve();
+            return;
+          }
+
+          this.generatedSummary = response.summary;
+          
           if (statusEl) {
             statusEl.style.display = 'none';
           }
-        } else {
-          // Handle failure
-          if (statusEl) {
-            statusEl.textContent = response?.error || 'Failed to generate tags. Add them manually below.';
-            setTimeout(() => {
-              if (statusEl && document.contains(statusEl)) {
-                statusEl.style.display = 'none';
-              }
-            }, 3000);
+          
+          if (containerEl) {
+            containerEl.innerHTML = this.parseMarkdown(response.summary);
+            containerEl.style.display = 'block';
           }
-        }
-      });
-    } catch (error) {
-      console.error('Error generating tags:', error);
-    }
+          resolve();
+        });
+      } catch (error) {
+        console.error('Error generating summary:', error);
+        resolve();
+      }
+    });
+  }
+
+  private async generateTags(): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        // Send message to background script to generate tags
+        chrome.runtime.sendMessage({
+          action: 'generateTags',
+          title: this.generatedTitle || document.title,
+          text: this.selectedText.substring(0, 500)
+        }, (response) => {
+          // Check if panel still exists (user might have switched tabs)
+          if (!this.capturePanel || !document.contains(this.capturePanel)) {
+            resolve();
+            return;
+          }
+          
+          const statusEl = document.getElementById('stackmind-tags-status');
+          
+          if (chrome.runtime.lastError) {
+            if (statusEl) {
+              statusEl.textContent = 'Failed to generate tags. Add them manually below.';
+              setTimeout(() => {
+                if (statusEl && document.contains(statusEl)) {
+                  statusEl.style.display = 'none';
+                }
+              }, 3000);
+            }
+            resolve();
+            return;
+          }
+
+          if (response && response.success && response.tags) {
+            // Add generated tags
+            response.tags.forEach((tag: string) => this.addTag(tag));
+            
+            // Hide loading status
+            if (statusEl) {
+              statusEl.style.display = 'none';
+            }
+          } else {
+            // Handle failure
+            if (statusEl) {
+              statusEl.textContent = response?.error || 'Failed to generate tags. Add them manually below.';
+              setTimeout(() => {
+                if (statusEl && document.contains(statusEl)) {
+                  statusEl.style.display = 'none';
+                }
+              }, 3000);
+            }
+          }
+          resolve();
+        });
+      } catch (error) {
+        console.error('Error generating tags:', error);
+        resolve();
+      }
+    });
   }
 
   private addTag(tag: string) {
