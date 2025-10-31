@@ -1,4 +1,4 @@
-// Content script that runs on Stack Overflow pages
+// Content script
 // Allows users to select and capture solution text
 
 interface CapturedSolution {
@@ -13,7 +13,7 @@ interface CapturedSolution {
   notes?: string;
 }
 
-class StackOverflowCapture {
+class SolutionCapture {
   private floatingButton: HTMLDivElement | null = null;
   private capturePanel: HTMLDivElement | null = null;
   private selectedText: string = '';
@@ -779,8 +779,5 @@ class StackOverflowCapture {
   }
 }
 
-// Initialize the capture functionality
-if (window.location.hostname.includes('stackoverflow.com')) {
-  new StackOverflowCapture();
-}
-
+// Initialize the capture functionality on all pages
+new SolutionCapture();
