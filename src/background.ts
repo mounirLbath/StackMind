@@ -5,6 +5,10 @@
 let aiSession: any = null;
 let isInitializingSession = false;
 
+// Global Summarizer session
+let summarizerSession: any = null;
+let isInitializingSummarizer = false;
+
 // Initialize AI session on startup
 async function initializeAISession() {
   if (aiSession || isInitializingSession) return;
@@ -37,12 +41,49 @@ async function initializeAISession() {
   }
 }
 
+// Initialize Summarizer session on startup
+async function initializeSummarizer() {
+  if (summarizerSession || isInitializingSummarizer) return;
+  
+  isInitializingSummarizer = true;
+  
+  try {
+    // @ts-ignore - Chrome Summarizer API is experimental
+    const availability = await Summarizer.availability();
+    
+    if (availability === 'unavailable') {
+      isInitializingSummarizer = false;
+      return;
+    }
+
+    // @ts-ignore
+    summarizerSession = await Summarizer.create({
+      type: 'key-points',
+      format: 'markdown',
+      length: 'short',
+      sharedContext: 'This is a programming solution from Stack Overflow',
+      monitor(m: any) {
+        m.addEventListener('downloadprogress', (e: any) => {
+          console.log(`Summarizer model: ${Math.round(e.loaded * 100)}%`);
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Summarizer init failed:', error);
+    summarizerSession = null;
+  } finally {
+    isInitializingSummarizer = false;
+  }
+}
+
 // Initialize on extension load (when service worker starts)
 initializeAISession();
+initializeSummarizer();
 
 // Initialize when Chrome browser starts
 chrome.runtime.onStartup.addListener(() => {
   initializeAISession();
+  initializeSummarizer();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -55,6 +96,7 @@ chrome.runtime.onInstalled.addListener(() => {
   
   // Initialize AI session
   initializeAISession();
+  initializeSummarizer();
 });
 
 // Listen for messages from content scripts or popup
@@ -204,34 +246,35 @@ Generate title:`;
   if (message.action === 'summarizeText') {
     (async () => {
       try {
-        // @ts-ignore - Chrome Summarizer API is experimental
-        const availability = await Summarizer.availability();
+        // Initialize session if not already done
+        if (!summarizerSession && !isInitializingSummarizer) {
+          await initializeSummarizer();
+        }
         
-        if (availability === 'unavailable') {
+        // Wait for session to be ready if it's initializing
+        let waitCount = 0;
+        while (isInitializingSummarizer && waitCount < 100) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          waitCount++;
+        }
+        
+        if (!summarizerSession) {
           sendResponse({ success: false, error: 'Summarizer not available.' });
           return;
         }
 
-        // @ts-ignore
-        const summarizer = await Summarizer.create({
-          type: 'key-points',
-          format: 'markdown',
-          length: 'short',
-          sharedContext: 'This is a programming solution from Stack Overflow',
-          monitor(m: any) {
-            m.addEventListener('downloadprogress', (e: any) => {
-              console.log(`Summarizer model: ${Math.round(e.loaded * 100)}%`);
-            });
-          }
-        });
-
-        const summary = await summarizer.summarize(message.text, {
+        const summary = await summarizerSession.summarize(message.text, {
           context: 'Focus on preserving code snippets and technical details while removing redundant explanations.'
         });
         
         sendResponse({ success: true, summary: summary.trim() });
       } catch (error) {
         console.error('Summarization error:', error);
+        
+        // Reset session on error and try to reinitialize
+        summarizerSession = null;
+        initializeSummarizer();
+        
         sendResponse({ success: false, error: `Failed: ${(error as Error).message}` });
       }
     })();
