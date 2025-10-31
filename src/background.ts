@@ -129,16 +129,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        const promptText = [
-            { role: 'system', content: 'You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.' },
-            { role: 'user', content: `Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
+        const promptText = `Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
     Generate tags for this programming solution:
 
     Title: ${message.title}
 
     Solution: ${message.text}...
 
-    Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`},];
+    Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
         
         const result = await aiSession.prompt(promptText);
         
@@ -218,7 +216,7 @@ Generate title:`;
         const summarizer = await Summarizer.create({
           type: 'key-points',
           format: 'markdown',
-          length: 'medium',
+          length: 'short',
           sharedContext: 'This is a programming solution from Stack Overflow',
           monitor(m: any) {
             m.addEventListener('downloadprogress', (e: any) => {

@@ -124,6 +124,42 @@ function App() {
     return date.toLocaleDateString();
   };
 
+  const parseMarkdown = (markdown: string): string => {
+    let html = markdown;
+    
+    // Code blocks with backticks
+    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; font-family: \'Courier New\', monospace;"><code>$2</code></pre>');
+    
+    // Inline code
+    html = html.replace(/`([^`]+)`/g, '<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: \'Courier New\', monospace; font-size: 12px; color: #e83e8c;">$1</code>');
+    
+    // Bold
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+    
+    // Italic
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+    
+    // Bullet points
+    html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li style="margin-bottom: 4px;">$1</li>');
+    
+    // Wrap list items in ul
+    html = html.replace(/(<li[\s\S]*?<\/li>)\n(?=<li)/g, '$1');
+    html = html.replace(/(<li[\s\S]*?<\/li>)/g, (match) => {
+      if (!match.startsWith('<ul')) {
+        return '<ul style="margin: 8px 0; padding-left: 20px; list-style-type: disc;">' + match + '</ul>';
+      }
+      return match;
+    });
+    
+    // Line breaks
+    html = html.replace(/\n\n/g, '<br><br>');
+    html = html.replace(/\n/g, '<br>');
+    
+    return html;
+  };
+
   if (loading) {
     return (
       <div className="w-full min-w-[600px] max-w-[1400px] min-h-[400px] h-screen mx-auto flex flex-col bg-white">
@@ -265,9 +301,14 @@ function App() {
                         </button>
                       )}
                     </div>
-                    <div className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words">
-                      {selectedSolution.summary && !showFullText ? selectedSolution.summary : selectedSolution.text}
-                    </div>
+                    <div 
+                      className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto break-words"
+                      dangerouslySetInnerHTML={{
+                        __html: selectedSolution.summary && !showFullText 
+                          ? parseMarkdown(selectedSolution.summary)
+                          : selectedSolution.text.replace(/\n/g, '<br>')
+                      }}
+                    />
                   </div>
 
                   {selectedSolution.notes && (
