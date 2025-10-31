@@ -22,6 +22,7 @@ interface BackgroundTask {
   pageTitle: string;
   startTime: number;
   notes?: string;
+  viewed?: boolean; // Track if the task has been viewed
   // For review state
   generatedData?: {
     text: string;
@@ -386,6 +387,21 @@ Generate title:`;
 
   if (message.action === 'getBackgroundTasks') {
     sendResponse({ tasks: backgroundTasks });
+    return true;
+  }
+
+  if (message.action === 'markTaskViewed') {
+    const task = backgroundTasks.find(t => t.id === message.taskId);
+    if (task) {
+      task.viewed = true;
+      // Save updated tasks to storage
+      chrome.storage.local.set({ backgroundTasks }).then(() => {
+        notifyPopup('backgroundTaskUpdate');
+        sendResponse({ success: true });
+      });
+    } else {
+      sendResponse({ success: false });
+    }
     return true;
   }
 

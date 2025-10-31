@@ -27,6 +27,7 @@ interface BackgroundTask {
   pageTitle: string;
   startTime: number;
   notes?: string;
+  viewed?: boolean; // Track if the task has been viewed
   // For review state
   generatedData?: {
     text: string;
@@ -40,10 +41,10 @@ interface BackgroundTask {
 function App() {
   const [solutions, setSolutions] = useState<CapturedSolution[]>([]);
   const [selectedSolution, setSelectedSolution] = useState<CapturedSolution | null>(null);
+  const [selectedTask, setSelectedTask] = useState<BackgroundTask | null>(null);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [taskNotes, setTaskNotes] = useState<{ [key: string]: string }>({});
   const [editedTaskData, setEditedTaskData] = useState<{ [key: string]: any }>({});
   const [isEditing, setIsEditing] = useState(false);
@@ -102,14 +103,10 @@ function App() {
     }
   };
 
-  const loadBackgroundTasks = (autoExpandTaskId?: string) => {
+  const loadBackgroundTasks = () => {
     chrome.runtime.sendMessage({ action: 'getBackgroundTasks' }, (response) => {
       if (response?.tasks) {
         setBackgroundTasks(response.tasks);
-        // Auto-expand specific task if provided (from notification click)
-        if (autoExpandTaskId) {
-          setExpandedTaskId(autoExpandTaskId);
-        }
         // Load notes from tasks, but preserve existing local notes
         setTaskNotes(prevNotes => {
           const notes: { [key: string]: string } = { ...prevNotes };
@@ -123,6 +120,31 @@ function App() {
         });
       }
     });
+  };
+
+  const markTaskAsViewed = (taskId: string) => {
+    chrome.runtime.sendMessage({
+      action: 'markTaskViewed',
+      taskId
+    }, () => {
+      setBackgroundTasks(prevTasks => 
+        prevTasks.map(task => 
+          task.id === taskId ? { ...task, viewed: true } : task
+        )
+      );
+    });
+  };
+
+  const handleTaskClick = (task: BackgroundTask) => {
+    setSelectedSolution(null);
+    setIsEditing(false);
+    setEditedSolution(null);
+    setSelectedTask(task);
+    
+    // Mark as viewed if it's in review status and hasn't been viewed
+    if (task.status === 'review' && !task.viewed) {
+      markTaskAsViewed(task.id);
+    }
   };
 
   const saveTaskNotes = (taskId: string) => {
@@ -466,292 +488,10 @@ function App() {
         </div>
       </motion.header>
 
-      {/* Main Content Container with Scrolling */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Background Tasks Progress */}
-        <AnimatePresence>
-          {backgroundTasks.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mx-4 mt-4"
-            >
-            {backgroundTasks.map((task, idx) => {
-              const isExpanded = expandedTaskId === task.id;
-              return (
-                <motion.div
-                  key={task.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.04 }}
-                  className="glass mb-2 overflow-hidden"
-                >
-                  {/* Header */}
-                  <div 
-                    className="p-4 cursor-pointer hover:bg-white/5 transition-colors"
-                    onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
-                  >
-                    <div className="flex items-center justify-between">
-              <div className="flex-1">
-                        <div className="text-sm font-semibold text-black/90 dark:text-white/95 mb-2 flex items-center gap-2">
-                          <span>Processing: {task.pageTitle}</span>
-                          {task.status === 'processing' && (
-                            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                          )}
-                </div>
-                        <div className="flex gap-3">
-                          <span className={`text-xs font-semibold transition-colors ${task.progress.format ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
-                    {task.progress.format ? '✓' : '○'} Format
-                  </span>
-                          <span className={`text-xs font-semibold transition-colors ${task.progress.title ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
-                    {task.progress.title ? '✓' : '○'} Title
-                  </span>
-                          <span className={`text-xs font-semibold transition-colors ${task.progress.tags ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
-                    {task.progress.tags ? '✓' : '○'} Tags
-                  </span>
-                          <span className={`text-xs font-semibold transition-colors ${task.progress.summary ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
-                    {task.progress.summary ? '✓' : '○'} Summary
-                  </span>
-                </div>
-              </div>
-                      <motion.div
-                        animate={{ rotate: isExpanded ? 180 : 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="text-black/60 dark:text-white/70"
-                      >
-                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                          <path d="M5 7.5l5 5 5-5" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </motion.div>
-                    </div>
-                  </div>
-
-                  {/* Expanded Content */}
-                  <AnimatePresence>
-                    {isExpanded && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="border-t border-white/10"
-                      >
-                        <div className="p-4 space-y-4">
-                          {task.status === 'review' && task.generatedData ? (
-                            // Review Mode - EDITABLE
-                            <>
-                              <div className="glass p-4 space-y-4">
-                                <div className="text-sm font-semibold text-green-600 dark:text-green-400 mb-2">
-                                  ✓ Processing Complete - Review & Edit
-                                </div>
-
-                                {/* Full Text Content */}
-                                <div>
-                                  <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
-                                    Solution Content
-                                  </label>
-                                  <div className="glass p-4 max-h-64 overflow-y-auto">
-                                    <pre className="text-xs text-black/80 dark:text-white/85 whitespace-pre-wrap font-mono">
-                                      {editedTaskData[task.id]?.text ?? task.generatedData.text}
-                                    </pre>
-                                  </div>
-                                </div>
-
-                                {/* Markdown Preview */}
-                                <div>
-                                  <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
-                                    Markdown Preview
-                                  </label>
-                                  <div className="glass p-4 max-h-64 overflow-y-auto">
-                                    <div 
-                                      className="prose prose-sm dark:prose-invert max-w-none text-black/80 dark:text-white/85"
-                                      dangerouslySetInnerHTML={{
-                                        __html: (editedTaskData[task.id]?.text ?? task.generatedData.text)
-                                          .replace(/&/g, '&amp;')
-                                          .replace(/</g, '&lt;')
-                                          .replace(/>/g, '&gt;')
-                                          .replace(/^### (.*$)/gim, '<h3>$1</h3>')
-                                          .replace(/^## (.*$)/gim, '<h2>$1</h2>')
-                                          .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-                                          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                                          .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                                          .replace(/`(.*?)`/g, '<code>$1</code>')
-                                          .replace(/\n\n/g, '<br/><br/>')
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                                
-                                {/* Title - Editable */}
-                                <div>
-                                  <Input
-                                    label="Title"
-                                    value={editedTaskData[task.id]?.title ?? task.generatedData.title}
-                                    onChange={(e) => setEditedTaskData({
-                                      ...editedTaskData,
-                                      [task.id]: {
-                                        ...editedTaskData[task.id],
-                                        title: e.target.value
-                                      }
-                                    })}
-                                  />
-                                </div>
-
-                                {/* Tags - Editable */}
-                                <div>
-                                  <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
-                                    Tags
-                                  </label>
-                                  <div className="flex flex-wrap gap-2 mb-2">
-                                    {(editedTaskData[task.id]?.tags ?? task.generatedData?.tags ?? []).map((tag: string, idx: number) => (
-                                      <Tag
-                                        key={idx}
-                                        onRemove={() => {
-                                          const currentTags = editedTaskData[task.id]?.tags ?? task.generatedData?.tags ?? [];
-                                          setEditedTaskData({
-                                            ...editedTaskData,
-                                            [task.id]: {
-                                              ...editedTaskData[task.id],
-                                              tags: currentTags.filter((_: string, i: number) => i !== idx)
-                                            }
-                                          });
-                                        }}
-                                      >
-                                        {tag}
-                                      </Tag>
-                                    ))}
-                                  </div>
-                                  <Input
-                                    placeholder="Add new tag..."
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                                        const currentTags = editedTaskData[task.id]?.tags ?? task.generatedData?.tags ?? [];
-                                        setEditedTaskData({
-                                          ...editedTaskData,
-                                          [task.id]: {
-                                            ...editedTaskData[task.id],
-                                            tags: [...currentTags, e.currentTarget.value.trim()]
-                                          }
-                                        });
-                                        e.currentTarget.value = '';
-                                      }
-                                    }}
-                                  />
-                                </div>
-
-                                {/* Summary - Editable */}
-                                {task.generatedData.summary && (
-                                  <div>
-                                    <Textarea
-                                      label="Summary"
-                                      rows={3}
-                                      value={editedTaskData[task.id]?.summary ?? task.generatedData.summary}
-                                      onChange={(e) => setEditedTaskData({
-                                        ...editedTaskData,
-                                        [task.id]: {
-                                          ...editedTaskData[task.id],
-                                          summary: e.target.value
-                                        }
-                                      })}
-                                    />
-                                  </div>
-                                )}
-
-                                {/* Notes - Editable */}
-                                <div>
-                                  <Textarea
-                                    label="Your Notes"
-                                    placeholder="Add context, notes, or why this solution works..."
-                                    rows={3}
-                                    value={editedTaskData[task.id]?.notes ?? task.notes ?? ''}
-                                    onChange={(e) => setEditedTaskData({
-                                      ...editedTaskData,
-                                      [task.id]: {
-                                        ...editedTaskData[task.id],
-                                        notes: e.target.value
-                                      }
-                                    })}
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Review Actions */}
-                              <div className="flex gap-2 justify-end pt-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    rejectSolution(task.id);
-                                  }}
-                                >
-                                  <X className="w-4 h-4" />
-                                  Discard
-                                </Button>
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    approveSolution(task.id);
-                                  }}
-                                >
-                                  <Sparkles className="w-4 h-4" />
-                                  Save Solution
-                                </Button>
-                              </div>
-                            </>
-                          ) : (
-                            // Processing Mode
-                            <>
-                              {/* Page Info */}
-                              <div>
-                                <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
-                                  Page
-                                </label>
-                                <div className="text-sm text-black/90 dark:text-white/95">{task.pageTitle}</div>
-                              </div>
-
-                              {/* Notes Field */}
-                              <div>
-                                <Textarea
-                                  label="Notes (Optional)"
-                                  placeholder="Add context, notes, or why this solution works..."
-                                  rows={4}
-                                  value={taskNotes[task.id] || ''}
-                                  onChange={(e) => setTaskNotes({ ...taskNotes, [task.id]: e.target.value })}
-                                />
-                              </div>
-
-                              {/* Actions */}
-                              <div className="flex gap-2 justify-end">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    saveTaskNotes(task.id);
-                                  }}
-                                >
-                                  Save Notes
-                                </Button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              );
-            })}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
+      {/* Main Content Container */}
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Solutions List */}
-        {solutions.length === 0 ? (
+        {solutions.length === 0 && backgroundTasks.length === 0 ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -779,7 +519,7 @@ function App() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="toolbar mx-4 mt-4"
+            className="toolbar mx-4 mt-4 mb-0"
           >
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black/40 dark:text-white/40" />
@@ -797,7 +537,7 @@ function App() {
           </motion.div>
 
           {/* Solutions Grid/List */}
-          <div className="flex-1 flex gap-4 m-4 overflow-hidden">
+          <div className="flex-1 flex gap-4 mx-4 my-4 overflow-hidden">
             {/* Solutions List */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
@@ -806,27 +546,78 @@ function App() {
               className="flex-1 overflow-y-auto space-y-2"
             >
               <AnimatePresence>
-                {filteredSolutions.map((solution, idx) => (
+                {/* Background Tasks */}
+                {backgroundTasks.map((task, idx) => (
                   <motion.div
-                  key={solution.id}
+                    key={task.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
                     transition={{ delay: idx * 0.04, duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                  onClick={() => setSelectedSolution(solution)}
+                    onClick={() => handleTaskClick(task)}
+                    className={`glass p-4 cursor-pointer transition-all hover:bg-white/20 relative ${
+                      selectedTask?.id === task.id ? 'ring-2 ring-primary/40 bg-white/20' : ''
+                    }`}
+                  >
+                    {/* NEW Badge */}
+                    {task.status === 'review' && !task.viewed && (
+                      <div className="absolute top-2 right-2 bg-primary text-white text-[10px] font-bold px-2 py-1 rounded-full">
+                        NEW
+                      </div>
+                    )}
+                    
+                    <div className="flex justify-between items-start gap-3 mb-2">
+                      <div className="flex-1 font-semibold text-sm text-black/90 dark:text-white/95 line-clamp-2 flex items-center gap-2">
+                        <span>{task.pageTitle}</span>
+                        {task.status === 'processing' && (
+                          <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                        )}
+                      </div>
+                      <div className="text-xs muted whitespace-nowrap">{formatDate(task.startTime)}</div>
+                    </div>
+                    
+                    <div className="flex gap-3 mb-2">
+                      <span className={`text-xs font-semibold transition-colors ${task.progress.format ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                        {task.progress.format ? '✓' : '○'} Format
+                      </span>
+                      <span className={`text-xs font-semibold transition-colors ${task.progress.title ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                        {task.progress.title ? '✓' : '○'} Title
+                      </span>
+                      <span className={`text-xs font-semibold transition-colors ${task.progress.tags ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                        {task.progress.tags ? '✓' : '○'} Tags
+                      </span>
+                      <span className={`text-xs font-semibold transition-colors ${task.progress.summary ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                        {task.progress.summary ? '✓' : '○'} Summary
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+
+                {/* Solutions */}
+                {filteredSolutions.map((solution, idx) => (
+                  <motion.div
+                    key={solution.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ delay: (idx + backgroundTasks.length) * 0.04, duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                    onClick={() => {
+                      setSelectedSolution(solution);
+                      setSelectedTask(null);
+                    }}
                     className={`glass p-4 cursor-pointer transition-all hover:bg-white/20 ${
                       selectedSolution?.id === solution.id ? 'ring-2 ring-primary/40 bg-white/20' : ''
                     }`}
-                >
-                  <div className="flex justify-between items-start gap-3 mb-2">
+                  >
+                    <div className="flex justify-between items-start gap-3 mb-2">
                       <div className="flex-1 font-semibold text-sm text-black/90 dark:text-white/95 line-clamp-2">
                         {solution.title}
                       </div>
                       <div className="text-xs muted whitespace-nowrap">{formatDate(solution.timestamp)}</div>
-                  </div>
+                    </div>
                     <div className="text-xs muted line-clamp-2 mb-2">
-                    {solution.summary ? solution.summary.substring(0, 150) : solution.text.substring(0, 100)}...
-                  </div>
+                      {solution.summary ? solution.summary.substring(0, 150) : solution.text.substring(0, 100)}...
+                    </div>
                     {(solution.tags && solution.tags.length > 0) && (
                       <div className="flex gap-1 flex-wrap">
                         {solution.tags.slice(0, 3).map((tag, idx) => (
@@ -840,14 +631,349 @@ function App() {
                       </div>
                     )}
                   </motion.div>
-              ))}
+                ))}
               </AnimatePresence>
             </motion.div>
 
             {/* Detail Panel */}
-            <AnimatePresence>
-            {selectedSolution && (
+            <AnimatePresence mode="wait">
+            {selectedTask && (
                 <motion.div
+                  key="task-detail"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="w-[500px] glass p-6 overflow-y-auto"
+                >
+                  {/* Header */}
+                  <div className="flex justify-between items-start mb-6">
+                    <h3 className="text-lg font-semibold text-black/90 dark:text-white/95">
+                      {selectedTask.status === 'review' ? 'Review Solution' : 'Processing Solution'}
+                    </h3>
+                    <button 
+                      onClick={() => setSelectedTask(null)}
+                      className="hover:bg-white/20 rounded-lg p-1 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {selectedTask.status === 'review' && selectedTask.generatedData ? (
+                    // Review Mode - EDITABLE
+                    <div className="space-y-4">
+                      <div className="glass p-4 space-y-4">
+                        <div className="text-sm font-semibold text-green-600 dark:text-green-400 mb-2">
+                          ✓ Processing Complete - Review & Edit
+                        </div>
+
+                        {/* Full Text Content */}
+                        <div>
+                          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                            Solution Content
+                          </label>
+                          <div className="glass p-4 max-h-64 overflow-y-auto">
+                            <pre className="text-xs text-black/80 dark:text-white/85 whitespace-pre-wrap font-mono">
+                              {editedTaskData[selectedTask.id]?.text ?? selectedTask.generatedData.text}
+                            </pre>
+                          </div>
+                        </div>
+
+                        {/* Markdown Preview */}
+                        <div>
+                          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                            Markdown Preview
+                          </label>
+                          <div className="glass p-4 max-h-64 overflow-y-auto">
+                            <div 
+                              className="prose prose-sm dark:prose-invert max-w-none text-black/80 dark:text-white/85"
+                              dangerouslySetInnerHTML={{
+                                __html: parseMarkdown(editedTaskData[selectedTask.id]?.text ?? selectedTask.generatedData.text)
+                              }}
+                            />
+                          </div>
+                        </div>
+                        
+                        {/* Title - Editable */}
+                        <div>
+                          <Input
+                            label="Title"
+                            value={editedTaskData[selectedTask.id]?.title ?? selectedTask.generatedData.title}
+                            onChange={(e) => setEditedTaskData({
+                              ...editedTaskData,
+                              [selectedTask.id]: {
+                                ...editedTaskData[selectedTask.id],
+                                title: e.target.value
+                              }
+                            })}
+                          />
+                        </div>
+
+                        {/* Tags - Editable */}
+                        <div>
+                          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                            Tags
+                          </label>
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {(editedTaskData[selectedTask.id]?.tags ?? selectedTask.generatedData?.tags ?? []).map((tag: string, idx: number) => (
+                              <Tag
+                                key={idx}
+                                onRemove={() => {
+                                  const currentTags = editedTaskData[selectedTask.id]?.tags ?? selectedTask.generatedData?.tags ?? [];
+                                  setEditedTaskData({
+                                    ...editedTaskData,
+                                    [selectedTask.id]: {
+                                      ...editedTaskData[selectedTask.id],
+                                      tags: currentTags.filter((_: string, i: number) => i !== idx)
+                                    }
+                                  });
+                                }}
+                              >
+                                {tag}
+                              </Tag>
+                            ))}
+                          </div>
+                          <Input
+                            placeholder="Add new tag..."
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                                const currentTags = editedTaskData[selectedTask.id]?.tags ?? selectedTask.generatedData?.tags ?? [];
+                                setEditedTaskData({
+                                  ...editedTaskData,
+                                  [selectedTask.id]: {
+                                    ...editedTaskData[selectedTask.id],
+                                    tags: [...currentTags, e.currentTarget.value.trim()]
+                                  }
+                                });
+                                e.currentTarget.value = '';
+                              }
+                            }}
+                          />
+                        </div>
+
+                        {/* Summary - Editable */}
+                        {selectedTask.generatedData.summary && (
+                          <div>
+                            <Textarea
+                              label="Summary"
+                              rows={3}
+                              value={editedTaskData[selectedTask.id]?.summary ?? selectedTask.generatedData.summary}
+                              onChange={(e) => setEditedTaskData({
+                                ...editedTaskData,
+                                [selectedTask.id]: {
+                                  ...editedTaskData[selectedTask.id],
+                                  summary: e.target.value
+                                }
+                              })}
+                            />
+                          </div>
+                        )}
+
+                        {/* Notes - Editable */}
+                        <div>
+                          <Textarea
+                            label="Your Notes"
+                            placeholder="Add context, notes, or why this solution works..."
+                            rows={3}
+                            value={editedTaskData[selectedTask.id]?.notes ?? selectedTask.notes ?? ''}
+                            onChange={(e) => setEditedTaskData({
+                              ...editedTaskData,
+                              [selectedTask.id]: {
+                                ...editedTaskData[selectedTask.id],
+                                notes: e.target.value
+                              }
+                            })}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Review Actions */}
+                      <div className="flex gap-2 justify-end pt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            rejectSolution(selectedTask.id);
+                            setSelectedTask(null);
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                          Discard
+                        </Button>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => {
+                            approveSolution(selectedTask.id);
+                            setSelectedTask(null);
+                          }}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          Save Solution
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    // Processing Mode
+                    <div className="space-y-4">
+                      {/* Page Info */}
+                      <div>
+                        <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                          Page
+                        </label>
+                        <div className="text-sm text-black/90 dark:text-white/95">{selectedTask.pageTitle}</div>
+                      </div>
+
+                      {/* Progress Indicators */}
+                      <div>
+                        <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                          Progress
+                        </label>
+                        <div className="glass p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Format</span>
+                            <span className={`text-sm font-semibold ${selectedTask.progress.format ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                              {selectedTask.progress.format ? '✓ Complete' : '○ Pending'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Title</span>
+                            <span className={`text-sm font-semibold ${selectedTask.progress.title ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                              {selectedTask.progress.title ? '✓ Complete' : '○ Pending'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Tags</span>
+                            <span className={`text-sm font-semibold ${selectedTask.progress.tags ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                              {selectedTask.progress.tags ? '✓ Complete' : '○ Pending'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Summary</span>
+                            <span className={`text-sm font-semibold ${selectedTask.progress.summary ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
+                              {selectedTask.progress.summary ? '✓ Complete' : '○ Pending'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Generated fields so far */}
+                      {selectedTask.generatedData && (
+                        <div className="glass p-4 space-y-4">
+                          <div className="text-sm font-semibold text-primary mb-2">
+                            Generated Fields (In Progress)
+                          </div>
+
+                          {selectedTask.generatedData.title && (
+                            <div>
+                              <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                                Title
+                              </label>
+                              <Input
+                                value={editedTaskData[selectedTask.id]?.title ?? selectedTask.generatedData.title}
+                                onChange={(e) => setEditedTaskData({
+                                  ...editedTaskData,
+                                  [selectedTask.id]: {
+                                    ...editedTaskData[selectedTask.id],
+                                    title: e.target.value
+                                  }
+                                })}
+                              />
+                            </div>
+                          )}
+
+                          {selectedTask.generatedData.tags && selectedTask.generatedData.tags.length > 0 && (
+                            <div>
+                              <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                                Tags
+                              </label>
+                              <div className="flex flex-wrap gap-2 mb-2">
+                                {(editedTaskData[selectedTask.id]?.tags ?? selectedTask.generatedData.tags).map((tag: string, idx: number) => (
+                                  <Tag
+                                    key={idx}
+                                    onRemove={() => {
+                                      const currentTags = editedTaskData[selectedTask.id]?.tags ?? selectedTask.generatedData?.tags ?? [];
+                                      setEditedTaskData({
+                                        ...editedTaskData,
+                                        [selectedTask.id]: {
+                                          ...editedTaskData[selectedTask.id],
+                                          tags: currentTags.filter((_: string, i: number) => i !== idx)
+                                        }
+                                      });
+                                    }}
+                                  >
+                                    {tag}
+                                  </Tag>
+                                ))}
+                              </div>
+                              <Input
+                                placeholder="Add new tag..."
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                                    const currentTags = editedTaskData[selectedTask.id]?.tags ?? selectedTask.generatedData?.tags ?? [];
+                                    setEditedTaskData({
+                                      ...editedTaskData,
+                                      [selectedTask.id]: {
+                                        ...editedTaskData[selectedTask.id],
+                                        tags: [...currentTags, e.currentTarget.value.trim()]
+                                      }
+                                    });
+                                    e.currentTarget.value = '';
+                                  }
+                                }}
+                              />
+                            </div>
+                          )}
+
+                          {selectedTask.generatedData.summary && (
+                            <div>
+                              <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                                Summary
+                              </label>
+                              <Textarea
+                                rows={3}
+                                value={editedTaskData[selectedTask.id]?.summary ?? selectedTask.generatedData.summary}
+                                onChange={(e) => setEditedTaskData({
+                                  ...editedTaskData,
+                                  [selectedTask.id]: {
+                                    ...editedTaskData[selectedTask.id],
+                                    summary: e.target.value
+                                  }
+                                })}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Notes Field */}
+                      <div>
+                        <Textarea
+                          label="Notes (Optional)"
+                          placeholder="Add context, notes, or why this solution works..."
+                          rows={4}
+                          value={taskNotes[selectedTask.id] || ''}
+                          onChange={(e) => setTaskNotes({ ...taskNotes, [selectedTask.id]: e.target.value })}
+                        />
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-2 justify-end">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => saveTaskNotes(selectedTask.id)}
+                        >
+                          Save Notes
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            {selectedSolution && !selectedTask && (
+                <motion.div
+                  key="solution-detail"
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
