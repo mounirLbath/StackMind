@@ -9,6 +9,28 @@ let isInitializingSession = false;
 let summarizerSession: any = null;
 let isInitializingSummarizer = false;
 
+// Background tasks tracker
+interface BackgroundTask {
+  id: string;
+  status: 'processing' | 'completed' | 'error';
+  progress: {
+    title: boolean;
+    tags: boolean;
+    summary: boolean;
+  };
+  pageTitle: string;
+  startTime: number;
+}
+
+let backgroundTasks: BackgroundTask[] = [];
+
+// Helper function to notify popup of updates
+function notifyPopup(action: string, data: any = {}) {
+  chrome.runtime.sendMessage({ action, ...data }).catch(() => {
+    // Popup might not be open, which is fine
+  });
+}
+
 // Initialize AI session on startup
 async function initializeAISession() {
   if (aiSession || isInitializingSession) return;
@@ -282,9 +304,30 @@ Generate title:`;
     return true;
   }
 
+  if (message.action === 'getBackgroundTasks') {
+    sendResponse({ tasks: backgroundTasks });
+    return true;
+  }
+
   if (message.action === 'processInBackground') {
     (async () => {
       const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, notes } = message;
+      
+      const taskId = Date.now().toString();
+      const task: BackgroundTask = {
+        id: taskId,
+        status: 'processing',
+        progress: {
+          title: !!currentTitle,
+          tags: !!(currentTags && currentTags.length > 0),
+          summary: !!currentSummary
+        },
+        pageTitle: pageTitle || 'Unknown Page',
+        startTime: Date.now()
+      };
+      
+      backgroundTasks.push(task);
+      notifyPopup('backgroundTaskUpdate');
       
       try {
         // Process any missing AI tasks
@@ -302,6 +345,8 @@ Generate title:`;
               const titlePrompt = `Generate a concise technical title (max 10 words) for this Stack Overflow solution:\n\nPage: ${pageTitle}\n\nContent: ${selectedText.substring(0, 500)}`;
               const generatedTitle = await aiSession.prompt(titlePrompt);
               results.title = generatedTitle.trim().replace(/^["']|["']$/g, '');
+              task.progress.title = true;
+              notifyPopup('backgroundTaskUpdate');
             }
           } catch (error) {
             console.error('Background title generation failed:', error);
@@ -316,6 +361,8 @@ Generate title:`;
               const tagsPrompt = `Generate 3-5 relevant technical tags (keywords) for this Stack Overflow solution. Return ONLY a comma-separated list of tags, nothing else:\n\n${selectedText.substring(0, 500)}`;
               const generatedTags = await aiSession.prompt(tagsPrompt);
               results.tags = generatedTags.toLowerCase().split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0);
+              task.progress.tags = true;
+              notifyPopup('backgroundTaskUpdate');
             }
           } catch (error) {
             console.error('Background tag generation failed:', error);
@@ -329,6 +376,8 @@ Generate title:`;
             if (summarizerSession) {
               const summary = await summarizerSession.summarize(selectedText);
               results.summary = summary.trim();
+              task.progress.summary = true;
+              notifyPopup('backgroundTaskUpdate');
             }
           } catch (error) {
             console.error('Background summary generation failed:', error);
@@ -352,6 +401,16 @@ Generate title:`;
         solutions.unshift(solution);
         await chrome.storage.local.set({ solutions });
 
+        // Mark task as completed
+        task.status = 'completed';
+        notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle });
+        
+        // Remove task after 3 seconds
+        setTimeout(() => {
+          backgroundTasks = backgroundTasks.filter(t => t.id !== taskId);
+          notifyPopup('backgroundTaskUpdate');
+        }, 3000);
+
         // Show notification
         chrome.notifications.create({
           type: 'basic',
@@ -363,6 +422,9 @@ Generate title:`;
 
       } catch (error) {
         console.error('Background processing error:', error);
+        task.status = 'error';
+        notifyPopup('backgroundTaskUpdate');
+        
         chrome.notifications.create({
           type: 'basic',
           iconUrl: chrome.runtime.getURL('vite.svg'),

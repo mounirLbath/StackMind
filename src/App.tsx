@@ -12,15 +12,48 @@ interface CapturedSolution {
   tags?: string[];
 }
 
+interface BackgroundTask {
+  id: string;
+  status: 'processing' | 'completed' | 'error';
+  progress: {
+    title: boolean;
+    tags: boolean;
+    summary: boolean;
+  };
+  pageTitle: string;
+  startTime: number;
+}
+
 function App() {
   const [solutions, setSolutions] = useState<CapturedSolution[]>([]);
   const [selectedSolution, setSelectedSolution] = useState<CapturedSolution | null>(null);
   const [filter, setFilter] = useState('');
   const [showFullText, setShowFullText] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
 
   useEffect(() => {
     loadSolutions();
+    loadBackgroundTasks();
+    
+    // Listen for background task updates
+    const listener = (message: any) => {
+      if (message.action === 'backgroundTaskUpdate') {
+        loadBackgroundTasks();
+      }
+      if (message.action === 'backgroundTaskComplete') {
+        loadBackgroundTasks();
+        loadSolutions();
+        // Show completion notification in UI
+        showCompletionNotification(message.pageTitle);
+      }
+    };
+    
+    chrome.runtime.onMessage.addListener(listener);
+    
+    return () => {
+      chrome.runtime.onMessage.removeListener(listener);
+    };
   }, []);
 
   const loadSolutions = async () => {
@@ -35,6 +68,27 @@ function App() {
       console.error('Error loading solutions:', error);
       setLoading(false);
     }
+  };
+
+  const loadBackgroundTasks = () => {
+    chrome.runtime.sendMessage({ action: 'getBackgroundTasks' }, (response) => {
+      if (response?.tasks) {
+        setBackgroundTasks(response.tasks);
+      }
+    });
+  };
+
+  const showCompletionNotification = (pageTitle: string) => {
+    // Create a temporary notification element
+    const notification = document.createElement('div');
+    notification.className = 'fixed top-4 right-4 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded shadow-lg z-50 animate-slide-in';
+    notification.textContent = `✓ Solution saved: ${pageTitle}`;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      notification.classList.add('animate-slide-out');
+      setTimeout(() => notification.remove(), 300);
+    }, 3000);
   };
 
   const deleteSolution = async (id: string) => {
@@ -193,6 +247,43 @@ function App() {
           )}
         </div>
       </header>
+
+      {/* Background Tasks Progress */}
+      {backgroundTasks.length > 0 && (
+        <div className="bg-blue-50 border-b border-blue-200 px-5 py-3">
+          {backgroundTasks.map(task => (
+            <div key={task.id} className="flex items-center justify-between mb-2 last:mb-0">
+              <div className="flex-1">
+                <div className="text-sm font-medium text-gray-900">
+                  Processing: {task.pageTitle}
+                </div>
+                <div className="flex gap-3 mt-1">
+                  <span className={`text-xs ${task.progress.title ? 'text-green-600' : 'text-gray-500'}`}>
+                    {task.progress.title ? '✓' : '○'} Title
+                  </span>
+                  <span className={`text-xs ${task.progress.tags ? 'text-green-600' : 'text-gray-500'}`}>
+                    {task.progress.tags ? '✓' : '○'} Tags
+                  </span>
+                  <span className={`text-xs ${task.progress.summary ? 'text-green-600' : 'text-gray-500'}`}>
+                    {task.progress.summary ? '✓' : '○'} Summary
+                  </span>
+                </div>
+              </div>
+              <div className="ml-4">
+                {task.status === 'processing' && (
+                  <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                )}
+                {task.status === 'completed' && (
+                  <span className="text-green-600 text-sm">✓</span>
+                )}
+                {task.status === 'error' && (
+                  <span className="text-red-600 text-sm">✗</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {solutions.length === 0 ? (
         <div className="flex-1 flex flex-col justify-center items-center p-10 text-center bg-white">
