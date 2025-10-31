@@ -27,6 +27,10 @@ class SolutionCapture {
       if (message.action === 'showCapturePanel') {
         this.showCapturePanel(message.taskId);
       }
+      if (message.action === 'showSearchMatches') {
+        // Show notification from background search (even if user navigated away)
+        this.showSearchMatchesNotification(message.matches, message.searchQuery);
+      }
       return true;
     });
 
@@ -699,37 +703,19 @@ class SolutionCapture {
         const query = searchParams.get('q');
         
         if (query && query.trim()) {
-          // Wait a bit for page to load
-          setTimeout(() => {
-            this.searchAndShowMatches(query.trim());
-          }, 1000);
+          // Trigger background search (don't wait, it will notify when complete)
+          try {
+            chrome.runtime.sendMessage({
+              action: 'searchSolutions',
+              searchQuery: query.trim()
+            });
+          } catch (error) {
+            // Ignore errors, search runs in background
+          }
         }
       }
     } catch (error) {
       // Not a valid URL or not a Google search, ignore
-    }
-  }
-
-  private async searchAndShowMatches(searchQuery: string) {
-    try {
-      if (!this.checkExtensionContext()) return;
-
-      // Send search request to background script
-      chrome.runtime.sendMessage({
-        action: 'searchSolutions',
-        searchQuery: searchQuery
-      }, (response) => {
-        if (chrome.runtime.lastError) {
-          return;
-        }
-
-        if (response?.success && response.matches && response.matches.length > 0) {
-          // Show notification with matched solutions
-          this.showSearchMatchesNotification(response.matches, searchQuery);
-        }
-      });
-    } catch (error) {
-      console.error('MindStack: Search error:', error);
     }
   }
 
@@ -862,7 +848,11 @@ class SolutionCapture {
         if (solutionId) {
           try {
             if (!this.checkExtensionContext()) return;
-            chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
+            // Open extension window with the specific solution ID
+            chrome.runtime.sendMessage({ 
+              action: 'openExtensionWindow',
+              solutionId: solutionId
+            });
             notification.style.animation = 'slideOutToTop 0.14s ease-out';
             setTimeout(() => notification.remove(), 140);
           } catch (e) {

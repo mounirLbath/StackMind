@@ -391,7 +391,11 @@ Generate title:`;
 
   if (message.action === 'openExtensionWindow') {
     // Open the extension in a popup window
-    const url = chrome.runtime.getURL('index.html');
+    let url = chrome.runtime.getURL('index.html');
+    // Add solutionId to URL if provided
+    if (message.solutionId) {
+      url += `#solution=${message.solutionId}`;
+    }
     chrome.windows.create({
       url: url,
       type: 'popup',
@@ -631,12 +635,17 @@ Title:`;
   }
 
   if (message.action === 'searchSolutions') {
+    // Run search in background and notify when complete
+    const sourceTabId = _sender.tab?.id;
+    
     (async () => {
       try {
         const { searchQuery } = message;
         
         if (!searchQuery) {
-          sendResponse({ success: false, error: 'No search query provided', matches: [] });
+          if (sourceTabId) {
+            sendResponse({ success: false, error: 'No search query provided', matches: [] });
+          }
           return;
         }
 
@@ -657,14 +666,36 @@ Title:`;
         // Search solutions (always call this, even if keyword extraction failed)
         const matches = await searchSolutions(keywords);
         
-        sendResponse({ success: true, matches, keywords });
+        // Send response if caller is waiting (for content script calls)
+        if (sourceTabId) {
+          sendResponse({ success: true, matches, keywords });
+        }
+        
+        // Also notify the active tab if matches found (even if user navigated away)
+        if (matches.length > 0) {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const activeTab = tabs[0];
+            if (activeTab?.id) {
+              chrome.tabs.sendMessage(activeTab.id, {
+                action: 'showSearchMatches',
+                matches: matches,
+                searchQuery: searchQuery,
+                keywords: keywords
+              }).catch(() => {
+                // Tab might not have content script, ignore
+              });
+            }
+          });
+        }
       } catch (error) {
         console.error('Search error:', error);
         // Ensure we always send a response, even on error
-        try {
-          sendResponse({ success: false, error: (error as Error).message, matches: [] });
-        } catch (responseError) {
-          console.error('Failed to send error response:', responseError);
+        if (sourceTabId) {
+          try {
+            sendResponse({ success: false, error: (error as Error).message, matches: [] });
+          } catch (responseError) {
+            console.error('Failed to send error response:', responseError);
+          }
         }
       }
     })();
@@ -690,7 +721,7 @@ async function extractKeywords(searchQuery: string): Promise<string> {
       return searchQuery.trim().toLowerCase();
     }
 
-    const prompt = `Extract 3-5 key technical keywords from this search query. Return ONLY a space-separated list of keywords, nothing else. Focus on programming/technical terms and remove stop words like "how", "what", "why", "the", etc.
+    const prompt = `Extract 1 key technical keyword from this search query. Return ONLY a space-separated list of keywords, nothing else. Focus on programming/technical terms and remove stop words like "how", "what", "why", "the", etc.
 
 Search query: ${searchQuery}
 
@@ -787,14 +818,118 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
+// Detect Google searches and trigger background search
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  // Only process when URL changes and page is fully loaded
+  if (changeInfo.status !== 'complete' || !tab.url) {
+    return;
+  }
+
+  try {
+    const url = new URL(tab.url);
+    const hostname = url.hostname.toLowerCase();
+    
+    // Check if this is a Google search results page
+    if ((hostname.includes('google.com') || hostname.includes('google.')) && url.pathname === '/search') {
+      const searchParams = url.searchParams;
+      const query = searchParams.get('q');
+      
+      if (query && query.trim()) {
+        // Run search directly in background (don't use sendMessage to self)
+        (async () => {
+          try {
+            // Extract keywords using AI (with timeout protection)
+            let keywords: string;
+            try {
+              keywords = await Promise.race([
+                extractKeywords(query.trim()),
+                new Promise<string>((_, reject) => 
+                  setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
+                )
+              ]) as string;
+            } catch (keywordError) {
+              // Fallback to original query if extraction fails or times out
+              keywords = query.trim().toLowerCase();
+            }
+            
+            // Search solutions
+            const matches = await searchSolutions(keywords);
+            
+            // Notify the active tab if matches found
+            if (matches.length > 0) {
+              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const activeTab = tabs[0];
+                if (activeTab?.id) {
+                  chrome.tabs.sendMessage(activeTab.id, {
+                    action: 'showSearchMatches',
+                    matches: matches,
+                    searchQuery: query.trim(),
+                    keywords: keywords
+                  }).catch(() => {
+                    // Tab might not have content script, ignore
+                  });
+                }
+              });
+            }
+          } catch (error) {
+            console.error('Background search error:', error);
+          }
+        })();
+      }
+    }
+  } catch (error) {
+    // Not a valid URL or not a Google search, ignore
+  }
+});
+
 // Omnibox handler - triggers when user types "ms " in address bar
 chrome.omnibox.onInputEntered.addListener((text, disposition) => {
   if (!text.trim()) return;
   
+  // Run search directly in background
+  (async () => {
+    try {
+      // Extract keywords using AI (with timeout protection)
+      let keywords: string;
+      try {
+        keywords = await Promise.race([
+          extractKeywords(text.trim()),
+          new Promise<string>((_, reject) => 
+            setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
+          )
+        ]) as string;
+      } catch (keywordError) {
+        // Fallback to original query if extraction fails or times out
+        keywords = text.trim().toLowerCase();
+      }
+      
+      // Search solutions
+      const matches = await searchSolutions(keywords);
+      
+      // Notify the active tab if matches found
+      if (matches.length > 0) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          const activeTab = tabs[0];
+          if (activeTab?.id) {
+            chrome.tabs.sendMessage(activeTab.id, {
+              action: 'showSearchMatches',
+              matches: matches,
+              searchQuery: text.trim(),
+              keywords: keywords
+            }).catch(() => {
+              // Tab might not have content script, ignore
+            });
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Omnibox search error:', error);
+    }
+  })();
+  
   const url = chrome.runtime.getURL('index.html');
   
-  // Process the search - for omnibox, always open in extension window
-  // The extension will handle filtering when opened
+  // Open extension window to view results
   if (disposition === 'newForegroundTab' || disposition === 'newBackgroundTab') {
     chrome.tabs.create({ url });
   } else {
