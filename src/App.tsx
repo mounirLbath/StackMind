@@ -51,6 +51,8 @@ function App() {
   const [editedSolution, setEditedSolution] = useState<CapturedSolution | null>(null);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
   const [newTag, setNewTag] = useState('');
+  const [detailPanelWidth, setDetailPanelWidth] = useState(0); // Will be initialized to 66% on mount
+  const [isResizing, setIsResizing] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean }>({
     message: '',
     type: 'info',
@@ -58,6 +60,93 @@ function App() {
   });
 
   const { theme, setTheme, effectiveTheme } = useTheme();
+
+  // Initialize detail panel width to 66% of container
+  useEffect(() => {
+    const initializeWidth = () => {
+      const container = document.querySelector('.solutions-container');
+      if (container) {
+        const containerWidth = container.clientWidth;
+        const defaultWidth = Math.floor(containerWidth * 0.66);
+        // Constrain to min (400px) and max (90% of container or 1200px)
+        const maxWidth = Math.min(containerWidth * 0.9, 1200);
+        const constrainedWidth = Math.min(Math.max(defaultWidth, 400), maxWidth);
+        setDetailPanelWidth(constrainedWidth);
+      } else {
+        // Fallback if container not found yet
+        setDetailPanelWidth(530); // Approximately 66% of 800px
+      }
+    };
+
+    // Initialize on mount and delay slightly to ensure container is rendered
+    const mountTimeout = window.setTimeout(initializeWidth, 0);
+
+    // Re-initialize on window resize (but not during manual resizing)
+    let resizeTimeout: number;
+    const handleResize = () => {
+      if (!isResizing) {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = window.setTimeout(initializeWidth, 100);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimeout);
+      clearTimeout(mountTimeout);
+    };
+  }, [isResizing]);
+
+  // Recalculate width when a detail panel is opened
+  useEffect(() => {
+    if (selectedSolution || selectedTask) {
+      const container = document.querySelector('.solutions-container');
+      if (container) {
+        const containerWidth = container.clientWidth;
+        const defaultWidth = Math.floor(containerWidth * 0.66);
+        const maxWidth = Math.min(containerWidth * 0.9, 1200);
+        const constrainedWidth = Math.min(Math.max(defaultWidth, 400), maxWidth);
+        setDetailPanelWidth(constrainedWidth);
+      }
+    }
+  }, [selectedSolution, selectedTask]);
+
+  // Handle panel resizing
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const container = document.querySelector('.solutions-container');
+      if (!container) return;
+      
+      const containerRect = container.getBoundingClientRect();
+      const newWidth = containerRect.right - e.clientX;
+      
+      // Constrain width between 300px and max (90% of container or 1200px)
+      const maxWidth = Math.min(containerRect.width * 0.9, 1200);
+      const constrainedWidth = Math.min(Math.max(newWidth, 300), maxWidth);
+      setDetailPanelWidth(constrainedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    if (isResizing) {
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   useEffect(() => {
     loadSolutions();
@@ -529,7 +618,7 @@ function App() {
           </motion.div>
 
           {/* Solutions Grid/List */}
-          <div className="flex-1 flex gap-4 mx-4 my-4 overflow-hidden">
+          <div className="flex-1 flex mx-4 my-4 overflow-hidden solutions-container">
             {/* Solutions List */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
@@ -630,14 +719,29 @@ function App() {
             {/* Detail Panel */}
             <AnimatePresence mode="wait">
             {selectedTask && (
-                <motion.div
-                  key="task-detail"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  className="w-[500px] glass p-6 overflow-y-auto"
-                >
+                <>
+                  {/* Resize Handle */}
+                  <div
+                    className="w-1 hover:w-2 bg-white/10 hover:bg-primary/40 transition-all cursor-col-resize relative group flex items-center justify-center"
+                    onMouseDown={() => setIsResizing(true)}
+                  >
+                    <div className="absolute inset-y-0 -left-1 -right-1" />
+                    <div className="absolute flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="w-1 h-1 rounded-full bg-white/40" />
+                      <div className="w-1 h-1 rounded-full bg-white/40" />
+                      <div className="w-1 h-1 rounded-full bg-white/40" />
+                    </div>
+                  </div>
+                  
+                  <motion.div
+                    key="task-detail"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0, width: detailPanelWidth || 530 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    style={{ width: detailPanelWidth || 530 }}
+                    className="glass p-6 overflow-y-auto flex-shrink-0"
+                  >
                   {/* Header */}
                   <div className="flex justify-between items-start mb-6">
                     <h3 className="text-lg font-semibold text-black/90 dark:text-white/95">
@@ -962,16 +1066,32 @@ function App() {
                     </div>
                   )}
                 </motion.div>
+                </>
               )}
             {selectedSolution && !selectedTask && (
-                <motion.div
-                  key="solution-detail"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-                  className="w-[500px] glass p-6 overflow-y-auto"
-                >
+                <>
+                  {/* Resize Handle */}
+                  <div
+                    className="w-1 hover:w-2 bg-white/10 hover:bg-primary/40 transition-all cursor-col-resize relative group flex items-center justify-center"
+                    onMouseDown={() => setIsResizing(true)}
+                  >
+                    <div className="absolute inset-y-0 -left-1 -right-1" />
+                    <div className="absolute flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="w-1 h-1 rounded-full bg-white/40" />
+                      <div className="w-1 h-1 rounded-full bg-white/40" />
+                      <div className="w-1 h-1 rounded-full bg-white/40" />
+                    </div>
+                  </div>
+                  
+                  <motion.div
+                    key="solution-detail"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0, width: detailPanelWidth || 530 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    style={{ width: detailPanelWidth || 530 }}
+                    className="glass p-6 overflow-y-auto flex-shrink-0"
+                  >
                   {/* Header */}
                   <div className="flex justify-between items-start mb-6">
                     <h3 className="text-lg font-semibold text-black/90 dark:text-white/95">
@@ -1155,6 +1275,7 @@ function App() {
               </div>
             )}
                 </motion.div>
+                </>
               )}
             </AnimatePresence>
           </div>
