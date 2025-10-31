@@ -33,7 +33,10 @@ function App() {
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editedSolution, setEditedSolution] = useState<CapturedSolution | null>(null);
-  const [detailPanelWidth, setDetailPanelWidth] = useState(400);
+  const [detailPanelWidth, setDetailPanelWidth] = useState(() => {
+    // Default to 66% of screen width
+    return Math.floor(window.innerWidth * 0.66);
+  });
   const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
