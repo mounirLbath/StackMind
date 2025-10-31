@@ -494,7 +494,7 @@ Generate title:`;
           try {
             if (!aiSession) await initializeAISession();
             if (aiSession) {
-              const formatPrompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT same text, just add markdown code formatting where appropriate. Do not summarize or change the content:\n\n${selectedText}`;
+              const formatPrompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT SAME TEXT, just add markdown code formatting where appropriate. DO NOT SUMMARIZE OR CHANGE THE CONTENT:\n\n${selectedText}`;
               const formatted = await aiSession.prompt(formatPrompt);
               results.text = formatted.trim();
               task.generatedData.text = formatted.trim();
@@ -514,9 +514,15 @@ Generate title:`;
           try {
             if (!aiSession) await initializeAISession();
             if (aiSession) {
-              const titlePrompt = `Generate a concise technical title (max 10 words) for this Stack Overflow solution:\n\nPage: ${pageTitle}\n\nContent: ${selectedText.substring(0, 500)}`;
+              const titlePrompt = `You are a title generator. Generate ONE concise technical title (max 10 words) for this Stack Overflow solution. Output ONLY the title text, no explanations, no quotes, no additional text.
+
+Page: ${pageTitle}
+
+Content: ${selectedText.substring(0, 500)}
+
+Title:`;
               const generatedTitle = await aiSession.prompt(titlePrompt);
-              results.title = generatedTitle.trim().replace(/^["']|["']$/g, '');
+              results.title = generatedTitle.trim().replace(/^["']|["']$/g, '').split('\n')[0];
               task.generatedData.title = results.title;
               task.progress.title = true;
               notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
