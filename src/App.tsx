@@ -1,4 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, Sparkles, ExternalLink, Edit2, Copy, Trash2, Moon, Sun, Laptop, X, Plus } from 'lucide-react';
+import { Button, Card, Tag, Input, Textarea, Toast, useTheme } from './lib/ui';
 
 interface CapturedSolution {
   id: string;
@@ -31,19 +34,24 @@ function App() {
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [taskNotes, setTaskNotes] = useState<{ [key: string]: string }>({});
   const [isEditing, setIsEditing] = useState(false);
   const [editedSolution, setEditedSolution] = useState<CapturedSolution | null>(null);
-  const [detailPanelWidth, setDetailPanelWidth] = useState(() => {
-    // Default to 66% of screen width
-    return Math.floor(window.innerWidth * 0.66);
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+  const [newTag, setNewTag] = useState('');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean }>({
+    message: '',
+    type: 'info',
+    visible: false,
   });
-  const [isResizing, setIsResizing] = useState(false);
+
+  const { theme, setTheme, effectiveTheme } = useTheme();
 
   useEffect(() => {
     loadSolutions();
     loadBackgroundTasks();
     
-    // Listen for background task updates
     const listener = (message: any) => {
       if (message.action === 'backgroundTaskUpdate') {
         loadBackgroundTasks();
@@ -51,8 +59,7 @@ function App() {
       if (message.action === 'backgroundTaskComplete') {
         loadBackgroundTasks();
         loadSolutions();
-        // Show completion notification in UI
-        showCompletionNotification(message.pageTitle);
+        showToast('Solution saved: ' + message.pageTitle, 'success');
       }
     };
     
@@ -63,40 +70,9 @@ function App() {
     };
   }, []);
 
-  // Handle resize
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-      
-      // Prevent default to avoid text selection during drag
-      e.preventDefault();
-      
-      const newWidth = window.innerWidth - e.clientX;
-      const minWidth = 300;
-      // Allow detail panel to take up to 80% of the window, leaving at least 200px for the list
-      const maxWidth = window.innerWidth - 200;
-      
-      setDetailPanelWidth(Math.max(minWidth, Math.min(newWidth, maxWidth)));
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'ew-resize';
-      document.body.style.userSelect = 'none';
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isResizing]);
+  const showToast = (message: string, type: 'success' | 'error' | 'info') => {
+    setToast({ message, type, visible: true });
+  };
 
   const loadSolutions = async () => {
     try {
@@ -116,21 +92,25 @@ function App() {
     chrome.runtime.sendMessage({ action: 'getBackgroundTasks' }, (response) => {
       if (response?.tasks) {
         setBackgroundTasks(response.tasks);
+        // Auto-expand first task if none expanded
+        if (response.tasks.length > 0 && !expandedTaskId) {
+          setExpandedTaskId(response.tasks[0].id);
+        }
       }
     });
   };
 
-  const showCompletionNotification = (pageTitle: string) => {
-    // Create a temporary notification element
-    const notification = document.createElement('div');
-    notification.className = 'fixed top-4 right-4 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded shadow-lg z-50 animate-slide-in';
-    notification.textContent = `✓ Solution saved: ${pageTitle}`;
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      notification.classList.add('animate-slide-out');
-      setTimeout(() => notification.remove(), 300);
-    }, 3000);
+  const saveTaskNotes = (taskId: string) => {
+    const notes = taskNotes[taskId] || '';
+    chrome.runtime.sendMessage({
+      action: 'updateTaskNotes',
+      taskId,
+      notes
+    }, (response) => {
+      if (response?.success) {
+        showToast('Notes saved', 'success');
+      }
+    });
   };
 
   const deleteSolution = async (id: string) => {
@@ -142,6 +122,7 @@ function App() {
         if (selectedSolution?.id === id) {
           setSelectedSolution(null);
         }
+        showToast('Solution deleted', 'success');
       }
     });
   };
@@ -180,19 +161,21 @@ function App() {
         setSelectedSolution(editedSolution);
         setIsEditing(false);
         setEditedSolution(null);
+        showToast('Changes saved', 'success');
       }
     });
   };
 
-  const addTagToEdited = (tag: string) => {
-    if (!editedSolution) return;
-    const trimmedTag = tag.trim().toLowerCase();
-    if (trimmedTag && !editedSolution.tags?.includes(trimmedTag)) {
+  const addTagToEdited = () => {
+    if (!editedSolution || !newTag.trim()) return;
+    const trimmedTag = newTag.trim().toLowerCase();
+    if (!editedSolution.tags?.includes(trimmedTag)) {
       setEditedSolution({
         ...editedSolution,
         tags: [...(editedSolution.tags || []), trimmedTag]
       });
     }
+    setNewTag('');
   };
 
   const removeTagFromEdited = (tagToRemove: string) => {
@@ -210,21 +193,20 @@ function App() {
       if (response?.success) {
         setSolutions([]);
         setSelectedSolution(null);
+        showToast('All solutions cleared', 'info');
       }
     });
   };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert('Text copied to clipboard!');
+    showToast('Copied to clipboard', 'success');
   };
 
   const openInWindow = () => {
     const url = chrome.runtime.getURL('index.html');
     window.open(url, '_blank');
   };
-
-  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
 
   const generateTags = async (solution: CapturedSolution) => {
     setIsGeneratingTags(true);
@@ -237,30 +219,29 @@ function App() {
       setIsGeneratingTags(false);
       
       if (chrome.runtime.lastError) {
-        alert('Failed to generate tags. Please try again.');
+        showToast('Failed to generate tags', 'error');
         return;
       }
 
       if (response && response.success && response.tags) {
-        // Update the solution with tags
         const updatedSolutions = solutions.map(s => 
           s.id === solution.id ? { ...s, tags: response.tags } : s
         );
         setSolutions(updatedSolutions);
         
-        // Also update selected solution if it's the same
         if (selectedSolution?.id === solution.id) {
           setSelectedSolution({ ...selectedSolution, tags: response.tags });
         }
 
-        // Save to storage
         chrome.runtime.sendMessage({ 
           action: 'updateSolution', 
           id: solution.id, 
           updates: { tags: response.tags } 
         });
+
+        showToast('Tags generated', 'success');
       } else {
-        alert(response?.error || 'Failed to generate tags. Please try again.');
+        showToast(response?.error || 'Failed to generate tags', 'error');
       }
     });
   };
@@ -277,26 +258,22 @@ function App() {
     const date = new Date(timestamp);
     const now = new Date();
     
-    // Reset time to midnight for accurate day comparison
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const compareDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     const diffTime = today.getTime() - compareDate.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     
     if (diffDays === 0) {
-      // Today - show time
       return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     }
     if (diffDays === 1) return 'Yesterday';
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
     
-    // For older dates, show the actual date
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
   };
 
   const parseMarkdown = (markdown: string): string => {
-    // First, extract code blocks to protect them
     const codeBlocks: string[] = [];
     let text = markdown.replace(/```[\s\S]*?```/g, (match) => {
       const placeholder = `___CODE_BLOCK_${codeBlocks.length}___`;
@@ -304,7 +281,6 @@ function App() {
       return placeholder;
     });
     
-    // Extract inline code
     const inlineCode: string[] = [];
     text = text.replace(/`[^`]+`/g, (match) => {
       const placeholder = `___INLINE_CODE_${inlineCode.length}___`;
@@ -312,7 +288,6 @@ function App() {
       return placeholder;
     });
     
-    // Now escape HTML in the remaining text
     let html = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -320,19 +295,17 @@ function App() {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
     
-    // Restore and process code blocks
     codeBlocks.forEach((block, i) => {
       const code = block.replace(/```(\w+)?\n([\s\S]*?)```/, (_, _lang, content) => {
         const escapedContent = content
           .replace(/&/g, '&amp;')
           .replace(/</g, '&lt;')
           .replace(/>/g, '&gt;');
-        return `<pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; font-family: 'Courier New', monospace;"><code>${escapedContent}</code></pre>`;
+        return `<pre class="bg-black/80 text-gray-100 p-3 rounded-lg overflow-x-auto my-2 font-mono text-xs"><code>${escapedContent}</code></pre>`;
       });
       html = html.replace(`___CODE_BLOCK_${i}___`, code);
     });
     
-    // Restore and process inline code
     inlineCode.forEach((code, i) => {
       const escapedCode = code
         .replace(/`([^`]+)`/, (_, content) => {
@@ -340,32 +313,16 @@ function App() {
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
-          return `<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 12px; color: #e83e8c;">${escaped}</code>`;
+          return `<code class="bg-primary/10 text-primary-600 dark:text-primary px-2 py-0.5 rounded font-mono text-xs">${escaped}</code>`;
         });
       html = html.replace(`___INLINE_CODE_${i}___`, escapedCode);
     });
     
-    // Bold
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-    
-    // Italic
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
-    
-    // Bullet points
-    html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li style="margin-bottom: 4px;">$1</li>');
-    
-    // Wrap list items in ul
-    html = html.replace(/(<li[\s\S]*?<\/li>)\n(?=<li)/g, '$1');
-    html = html.replace(/(<li[\s\S]*?<\/li>)/g, (match) => {
-      if (!match.startsWith('<ul')) {
-        return '<ul style="margin: 8px 0; padding-left: 20px; list-style-type: disc;">' + match + '</ul>';
-      }
-      return match;
-    });
-    
-    // Line breaks
+    html = html.replace(/^[\*\-]\s+(.+)$/gm, '<li class="ml-4">$1</li>');
     html = html.replace(/\n\n/g, '<br><br>');
     html = html.replace(/\n/g, '<br>');
     
@@ -374,397 +331,491 @@ function App() {
 
   if (loading) {
     return (
-      <div className="w-full min-w-[600px] max-w-[1400px] min-h-[400px] h-screen mx-auto flex flex-col bg-white">
-        <div className="flex justify-center items-center h-[300px] text-gray-800">Loading...</div>
+      <div className={`w-full min-w-[800px] min-h-[600px] h-screen flex items-center justify-center ${effectiveTheme === 'dark' ? 'gradient-dark' : 'gradient-light'}`}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="glass px-8 py-6"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <span className="text-black/80 dark:text-white/90 font-medium">Loading...</span>
+          </div>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="w-full min-w-[600px] max-w-[1400px] min-h-[400px] h-screen mx-auto flex flex-col bg-white">
-      <header className="bg-gray-50 px-5 py-5 border-b border-gray-300 flex justify-between items-center">
-        <div>
-          <h1 className="m-0 text-2xl text-gray-900 font-semibold">MindStack</h1>
+    <div className={`w-full min-w-[800px] min-h-[600px] h-screen flex flex-col ${effectiveTheme === 'dark' ? 'gradient-dark' : 'gradient-light'}`}>
+      {/* Toast Notification */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.visible}
+        onClose={() => setToast({ ...toast, visible: false })}
+      />
+
+      {/* Header Toolbar */}
+      <motion.header
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="toolbar m-4 mb-0"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+            <Sparkles className="w-5 h-5 text-white" />
+          </div>
+          <h1 className="text-xl font-semibold text-black/90 dark:text-white/95">MindStack</h1>
         </div>
-        <div className="flex gap-2">
-          <button 
-            className="bg-gray-300 border border-gray-400 rounded px-3 py-2 cursor-pointer text-xs font-medium text-gray-800 transition-colors hover:bg-gray-400" 
-            onClick={openInWindow} 
-            title="Open in new tab"
-          >
-            Open Tab
-          </button>
-          {solutions.length > 0 && (
-            <button 
-              className="bg-gray-300 border border-gray-400 rounded px-3 py-2 cursor-pointer text-xs font-medium text-gray-800 transition-colors hover:bg-gray-400" 
-              onClick={clearAll} 
-              title="Clear all solutions"
+
+        <div className="flex items-center gap-2">
+          {/* Theme Toggle */}
+          <div className="flex items-center gap-1 glass px-2 py-1 rounded-lg">
+            <button
+              onClick={() => setTheme('light')}
+              className={`p-1.5 rounded transition-colors ${theme === 'light' ? 'bg-white/30' : 'hover:bg-white/10'}`}
+              title="Light mode"
             >
-              Clear All
+              <Sun className="w-4 h-4" />
             </button>
+          <button 
+              onClick={() => setTheme('system')}
+              className={`p-1.5 rounded transition-colors ${theme === 'system' ? 'bg-white/30' : 'hover:bg-white/10'}`}
+              title="System theme"
+            >
+              <Laptop className="w-4 h-4" />
+          </button>
+            <button 
+              onClick={() => setTheme('dark')}
+              className={`p-1.5 rounded transition-colors ${theme === 'dark' ? 'bg-white/30' : 'hover:bg-white/10'}`}
+              title="Dark mode"
+            >
+              <Moon className="w-4 h-4" />
+            </button>
+          </div>
+
+          <Button variant="outline" size="sm" onClick={openInWindow}>
+            <ExternalLink className="w-4 h-4" />
+            New Tab
+          </Button>
+
+          {solutions.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearAll}>
+              Clear All
+            </Button>
           )}
         </div>
-      </header>
+      </motion.header>
 
       {/* Background Tasks Progress */}
+      <AnimatePresence>
       {backgroundTasks.length > 0 && (
-        <div className="bg-blue-50 border-b border-blue-200 px-5 py-3">
-          {backgroundTasks.map(task => (
-            <div key={task.id} className="flex items-center justify-between mb-2 last:mb-0">
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mx-4 mt-4"
+          >
+            {backgroundTasks.map((task, idx) => {
+              const isExpanded = expandedTaskId === task.id;
+              return (
+                <motion.div
+                  key={task.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.04 }}
+                  className="glass mb-2 overflow-hidden"
+                >
+                  {/* Header */}
+                  <div 
+                    className="p-4 cursor-pointer hover:bg-white/5 transition-colors"
+                    onClick={() => setExpandedTaskId(isExpanded ? null : task.id)}
+                  >
+                    <div className="flex items-center justify-between">
               <div className="flex-1">
-                <div className="text-sm font-medium text-gray-900">
-                  Processing: {task.pageTitle}
+                        <div className="text-sm font-semibold text-black/90 dark:text-white/95 mb-2 flex items-center gap-2">
+                          <span>Processing: {task.pageTitle}</span>
+                          {task.status === 'processing' && (
+                            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          )}
                 </div>
-                <div className="flex gap-3 mt-1">
-                  <span className={`text-xs ${task.progress.format ? 'text-green-600' : 'text-gray-500'}`}>
+                        <div className="flex gap-3">
+                          <span className={`text-xs font-semibold transition-colors ${task.progress.format ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
                     {task.progress.format ? '✓' : '○'} Format
                   </span>
-                  <span className={`text-xs ${task.progress.title ? 'text-green-600' : 'text-gray-500'}`}>
+                          <span className={`text-xs font-semibold transition-colors ${task.progress.title ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
                     {task.progress.title ? '✓' : '○'} Title
                   </span>
-                  <span className={`text-xs ${task.progress.tags ? 'text-green-600' : 'text-gray-500'}`}>
+                          <span className={`text-xs font-semibold transition-colors ${task.progress.tags ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
                     {task.progress.tags ? '✓' : '○'} Tags
                   </span>
-                  <span className={`text-xs ${task.progress.summary ? 'text-green-600' : 'text-gray-500'}`}>
+                          <span className={`text-xs font-semibold transition-colors ${task.progress.summary ? 'text-green-500' : 'text-black/30 dark:text-white/30'}`}>
                     {task.progress.summary ? '✓' : '○'} Summary
                   </span>
                 </div>
               </div>
-              <div className="ml-4 flex items-center gap-2">
-                <button 
-                  className="bg-blue-600 text-white border-0 px-3 py-1.5 rounded cursor-pointer text-xs font-medium transition-colors hover:bg-blue-700"
-                  onClick={() => {
-                    chrome.runtime.sendMessage({ action: 'openPopup', taskId: task.id });
-                  }}
-                  title="View and edit on page"
-                >
-                  View Progress
-                </button>
-                {task.status === 'processing' && (
-                  <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
-                )}
-                {task.status === 'completed' && (
-                  <span className="text-green-600 text-sm">✓</span>
-                )}
-                {task.status === 'error' && (
-                  <span className="text-red-600 text-sm">✗</span>
-                )}
+                      <motion.div
+                        animate={{ rotate: isExpanded ? 180 : 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="text-black/60 dark:text-white/70"
+                      >
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M5 7.5l5 5 5-5" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </motion.div>
+                    </div>
+                  </div>
+
+                  {/* Expanded Content */}
+                  <AnimatePresence>
+                    {isExpanded && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="border-t border-white/10"
+                      >
+                        <div className="p-4 space-y-4">
+                          {/* Page Info */}
+                          <div>
+                            <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                              Page
+                            </label>
+                            <div className="text-sm text-black/90 dark:text-white/95">{task.pageTitle}</div>
+                          </div>
+
+                          {/* Notes Field */}
+                          <div>
+                            <Textarea
+                              label="Notes (Optional)"
+                              placeholder="Add context, notes, or why this solution works..."
+                              rows={4}
+                              value={taskNotes[task.id] || ''}
+                              onChange={(e) => setTaskNotes({ ...taskNotes, [task.id]: e.target.value })}
+                            />
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex gap-2 justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                saveTaskNotes(task.id);
+                              }}
+                            >
+                              Save Notes
+                            </Button>
               </div>
             </div>
-          ))}
-        </div>
-      )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
+      {/* Main Content */}
       {solutions.length === 0 ? (
-        <div className="flex-1 flex flex-col justify-center items-center p-10 text-center bg-white">
-          <div className="text-5xl mb-5 text-gray-500 font-light">—</div>
-          <h2 className="m-0 mb-2.5 text-xl text-gray-900 font-semibold">No solutions captured yet</h2>
-          <p className="m-0 mb-8 text-gray-600">Visit Stack Overflow and select text to capture solutions.</p>
-          <div className="bg-gray-100 border border-gray-300 rounded px-5 py-5 text-left max-w-md">
-            <h3 className="m-0 mb-3 text-base text-gray-900 font-semibold">How to use:</h3>
-            <ol className="m-0 pl-5 text-gray-700 leading-relaxed">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex-1 flex items-center justify-center p-8"
+        >
+          <Card animate className="text-center max-w-md">
+            <div className="text-5xl mb-4 opacity-40">✨</div>
+            <h2 className="text-2xl font-semibold text-black/90 dark:text-white/95 mb-2">No solutions yet</h2>
+            <p className="text-sm muted mb-6">Visit Stack Overflow and select text to capture solutions.</p>
+            <div className="glass p-4 rounded-lg text-left">
+              <h3 className="text-sm font-semibold text-black/90 dark:text-white/95 mb-3">How to use:</h3>
+              <ol className="text-sm muted space-y-2 ml-4 list-decimal">
               <li>Go to any Stack Overflow page</li>
               <li>Select the text of a solution</li>
-              <li>Click the "Capture Solution" button</li>
+                <li>Click "Capture Solution"</li>
               <li>Your solution will be saved here!</li>
             </ol>
           </div>
-        </div>
+          </Card>
+        </motion.div>
       ) : (
         <>
-          <div className="bg-gray-50 px-5 py-3 flex gap-3 items-center border-b border-gray-300">
+          {/* Search Toolbar */}
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="toolbar mx-4 mt-4"
+          >
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black/40 dark:text-white/40" />
             <input
               type="text"
               placeholder="Search solutions..."
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="flex-1 border border-gray-400 rounded px-3 py-2 text-sm outline-none bg-white transition-colors focus:border-gray-600"
+                className="w-full pl-10 pr-4 py-2 text-sm bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/15 rounded-lg outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-black/40 dark:placeholder:text-white/40 transition-all"
             />
-            <span className="text-xs text-gray-600 font-medium whitespace-nowrap">{filteredSolutions.length} solution{filteredSolutions.length !== 1 ? 's' : ''}</span>
           </div>
+            <span className="text-xs muted whitespace-nowrap">
+              {filteredSolutions.length} solution{filteredSolutions.length !== 1 ? 's' : ''}
+            </span>
+          </motion.div>
 
-          <div className="flex-1 flex overflow-hidden bg-white min-h-0">
-            <div className="flex-1 overflow-y-auto border-r border-gray-300">
-              {filteredSolutions.map((solution) => (
-                <div
+          {/* Solutions Grid/List */}
+          <div className="flex-1 flex gap-4 m-4 overflow-hidden">
+            {/* Solutions List */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.15 }}
+              className="flex-1 overflow-y-auto space-y-2"
+            >
+              <AnimatePresence>
+                {filteredSolutions.map((solution, idx) => (
+                  <motion.div
                   key={solution.id}
-                  className={`px-5 py-4 border-b border-gray-200 cursor-pointer transition-colors hover:bg-gray-50 ${selectedSolution?.id === solution.id ? 'bg-gray-100 border-l-[3px] border-l-gray-700' : ''}`}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    transition={{ delay: idx * 0.04, duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
                   onClick={() => setSelectedSolution(solution)}
+                    className={`glass p-4 cursor-pointer transition-all hover:bg-white/20 ${
+                      selectedSolution?.id === solution.id ? 'ring-2 ring-primary/40 bg-white/20' : ''
+                    }`}
                 >
                   <div className="flex justify-between items-start gap-3 mb-2">
-                    <div className="flex-1 font-semibold text-[13px] text-gray-900 leading-snug overflow-hidden line-clamp-2">{solution.title}</div>
-                    <div className="text-[11px] text-gray-500 whitespace-nowrap">{formatDate(solution.timestamp)}</div>
+                      <div className="flex-1 font-semibold text-sm text-black/90 dark:text-white/95 line-clamp-2">
+                        {solution.title}
+                      </div>
+                      <div className="text-xs muted whitespace-nowrap">{formatDate(solution.timestamp)}</div>
                   </div>
-                  <div className="text-xs text-gray-600 leading-normal overflow-hidden line-clamp-2">
+                    <div className="text-xs muted line-clamp-2 mb-2">
                     {solution.summary ? solution.summary.substring(0, 150) : solution.text.substring(0, 100)}...
                   </div>
-                  <div className="flex gap-2 mt-2 flex-wrap">
-                    {solution.summary && (
-                      <div className="text-[11px] text-gray-700 font-medium bg-gray-200 px-2 py-0.5 rounded">AI Summary</div>
-                    )}
-                    {solution.notes && (
-                      <div className="text-[11px] text-gray-700 font-medium">Has notes</div>
-                    )}
-                    {solution.tags && solution.tags.length > 0 && (
+                    {(solution.tags && solution.tags.length > 0) && (
                       <div className="flex gap-1 flex-wrap">
-                        {solution.tags.map((tag, idx) => (
-                          <span key={idx} className="text-[10px] bg-gray-200 text-gray-800 px-2 py-0.5 rounded">
+                        {solution.tags.slice(0, 3).map((tag, idx) => (
+                          <span key={idx} className="text-[10px] bg-white/20 dark:bg-white/10 px-2 py-0.5 rounded-full">
                             {tag}
                           </span>
                         ))}
+                        {solution.tags.length > 3 && (
+                          <span className="text-[10px] muted">+{solution.tags.length - 3}</span>
+                        )}
                       </div>
                     )}
-                  </div>
-                </div>
+                  </motion.div>
               ))}
-            </div>
+              </AnimatePresence>
+            </motion.div>
 
+            {/* Detail Panel */}
+            <AnimatePresence>
             {selectedSolution && (
-              <div 
-                className="flex flex-col bg-gray-50 relative"
-                style={{ width: `${detailPanelWidth}px`, minWidth: '300px' }}
-              >
-                {/* Resize handle */}
-                <div
-                  className="absolute left-0 top-0 bottom-0 cursor-ew-resize hover:bg-blue-400 transition-colors z-10"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsResizing(true);
-                  }}
-                  style={{ 
-                    background: isResizing ? '#60a5fa' : 'transparent',
-                    width: '4px',
-                    marginLeft: '-2px'
-                  }}
-                />
-                
-                <div className="p-3 flex justify-between items-center">
-                  <h3 className="m-0 text-base text-gray-900 font-semibold">
-                    {isEditing ? 'Edit Solution' : 'Solution Details'}
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="w-[500px] glass p-6 overflow-y-auto"
+                >
+                  {/* Header */}
+                  <div className="flex justify-between items-start mb-6">
+                    <h3 className="text-lg font-semibold text-black/90 dark:text-white/95">
+                      {isEditing ? 'Edit Solution' : 'Details'}
                   </h3>
                   <button 
-                    className="bg-transparent border-0 text-2xl cursor-pointer text-gray-600 w-8 h-8 flex items-center justify-center rounded transition-colors hover:bg-gray-300" 
                     onClick={() => {
                       setSelectedSolution(null);
                       setIsEditing(false);
                       setEditedSolution(null);
                     }}
+                      className="hover:bg-white/20 rounded-lg p-1 transition-colors"
                   >
-                    ×
+                      <X className="w-5 h-5" />
                   </button>
                 </div>
                 
-                <div className="flex-1 px-5 pb-5 overflow-y-auto">
                   {isEditing && editedSolution ? (
-                    <>
-                      {/* Edit Mode */}
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Title:</label>
-                        <input
-                          type="text"
+                    <div className="space-y-4">
+                      <Input
+                        label="Title"
                           value={editedSolution.title}
                           onChange={(e) => setEditedSolution({ ...editedSolution, title: e.target.value })}
-                          className="w-full border border-gray-400 rounded px-3 py-2 text-[13px] outline-none transition-colors focus:border-gray-600"
                         />
-                      </div>
 
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Full Text:</label>
-                        <textarea
+                      <Textarea
+                        label="Full Text"
                           value={editedSolution.text}
                           onChange={(e) => setEditedSolution({ ...editedSolution, text: e.target.value })}
-                          className="w-full min-h-[150px] border border-gray-400 rounded px-3 py-2 text-[13px] outline-none resize-vertical transition-colors focus:border-gray-600 font-mono"
+                        rows={6}
+                        className="font-mono"
                         />
-                      </div>
 
                       {editedSolution.summary && (
-                        <div className="mb-5">
-                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">AI Summary (Markdown):</label>
-                          <textarea
+                        <Textarea
+                          label="Summary"
                             value={editedSolution.summary}
                             onChange={(e) => setEditedSolution({ ...editedSolution, summary: e.target.value })}
-                            placeholder="AI-generated summary..."
-                            className="w-full min-h-[100px] border border-gray-400 rounded px-3 py-2 text-[13px] outline-none resize-vertical transition-colors focus:border-gray-600"
-                          />
-                          {editedSolution.summary && (
-                            <div className="mt-2 p-3 bg-gray-50 border border-gray-300 rounded text-[13px]">
-                              <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">Preview:</div>
-                              <div
-                                dangerouslySetInnerHTML={{ __html: parseMarkdown(editedSolution.summary) }}
-                              />
-                            </div>
-                          )}
-                        </div>
+                          rows={4}
+                        />
                       )}
 
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Tags:</label>
+                      <div>
+                        <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                          Tags
+                        </label>
                         <div className="flex gap-2 flex-wrap mb-2">
-                          {editedSolution.tags?.map((tag, idx) => (
-                            <span key={idx} className="text-xs bg-gray-200 text-gray-800 px-3 py-1 rounded font-medium flex items-center gap-1">
+                          <AnimatePresence>
+                            {editedSolution.tags?.map((tag) => (
+                              <Tag key={tag} onRemove={() => removeTagFromEdited(tag)}>
                               {tag}
-                              <button
-                                onClick={() => removeTagFromEdited(tag)}
-                                className="text-gray-600 hover:text-gray-900 font-bold"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
+                              </Tag>
+                            ))}
+                          </AnimatePresence>
                         </div>
+                        <div className="flex gap-2">
                         <input
                           type="text"
-                          placeholder="Add tag (press Enter)"
+                            placeholder="Add tag..."
+                            value={newTag}
+                            onChange={(e) => setNewTag(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                              addTagToEdited(e.currentTarget.value);
-                              e.currentTarget.value = '';
-                            }
-                          }}
-                          className="w-full border border-gray-400 rounded px-3 py-2 text-[13px] outline-none transition-colors focus:border-gray-600"
-                        />
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addTagToEdited();
+                              }
+                            }}
+                            className="flex-1 px-3 py-2 text-sm bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/15 rounded-lg outline-none focus:ring-1 focus:ring-primary/40"
+                          />
+                          <Button size="sm" onClick={addTagToEdited}>
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
 
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Notes (Markdown supported):</label>
-                        <textarea
+                      <Textarea
+                        label="Notes"
                           value={editedSolution.notes || ''}
                           onChange={(e) => setEditedSolution({ ...editedSolution, notes: e.target.value })}
-                          placeholder="Add notes... (supports **bold**, *italic*, `code`, etc.)"
-                          className="w-full min-h-[120px] border border-gray-400 rounded px-3 py-2 text-[13px] outline-none resize-vertical transition-colors focus:border-gray-600"
-                        />
-                        {editedSolution.notes && (
-                          <div className="mt-2 p-3 bg-gray-50 border border-gray-300 rounded text-[13px]">
-                            <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">Preview:</div>
-                            <div
-                              dangerouslySetInnerHTML={{ __html: parseMarkdown(editedSolution.notes) }}
-                            />
-                          </div>
-                        )}
-                      </div>
+                        rows={4}
+                        placeholder="Add your notes..."
+                      />
 
-                      <div className="flex flex-col gap-2 mt-5">
-                        <button 
-                          className="bg-gray-800 text-white border border-gray-800 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-900" 
-                          onClick={saveEdits}
-                        >
+                      <div className="flex gap-2 pt-4">
+                        <Button onClick={saveEdits} className="flex-1">
                           Save Changes
-                        </button>
-                        <button 
-                          className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-400" 
-                          onClick={cancelEditing}
-                        >
+                        </Button>
+                        <Button variant="ghost" onClick={cancelEditing}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
-                    </>
+                      </div>
                   ) : (
-                    <>
-                      {/* View Mode */}
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Title:</label>
-                        <div className="text-[14px] text-gray-900 font-medium">{selectedSolution.title}</div>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Title</label>
+                        <div className="text-sm text-black/90 dark:text-white/95 font-medium">{selectedSolution.title}</div>
                       </div>
 
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Source:</label>
+                      <div>
+                        <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Source</label>
                         <a 
                           href={selectedSolution.url} 
                           target="_blank" 
                           rel="noopener noreferrer" 
-                          className="text-gray-800 underline text-[13px] break-words hover:text-gray-900"
+                          className="text-sm text-primary hover:text-primary-600 underline break-all flex items-center gap-1"
                         >
-                          {selectedSolution.url}
+                          View on Stack Overflow
+                          <ExternalLink className="w-3 h-3" />
                         </a>
                       </div>
 
                       {selectedSolution.summary && (
-                        <div className="mb-5">
-                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Summary:</label>
-                          <div 
-                            className="bg-blue-50 border border-blue-200 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto break-words"
-                            dangerouslySetInnerHTML={{
-                              __html: parseMarkdown(selectedSolution.summary)
-                            }}
+                        <div>
+                          <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Summary</label>
+                          <div
+                            className="glass p-3 text-sm text-black/80 dark:text-white/90 rounded-lg"
+                            dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedSolution.summary) }}
                           />
                         </div>
                       )}
 
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Full Text:</label>
-                        <div 
-                          className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 break-words"
-                          dangerouslySetInnerHTML={{
-                            __html: parseMarkdown(selectedSolution.text)
-                          }}
+                      <div>
+                        <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Full Text</label>
+                        <div
+                          className="glass p-3 text-sm text-black/80 dark:text-white/90 rounded-lg max-h-[300px] overflow-y-auto"
+                          dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedSolution.text) }}
                         />
                       </div>
 
                       {selectedSolution.notes && (
-                        <div className="mb-5">
-                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Notes:</label>
+                        <div>
+                          <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Notes</label>
                           <div 
-                            className="bg-gray-100 border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800"
+                            className="glass p-3 text-sm text-black/80 dark:text-white/90 rounded-lg"
                             dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedSolution.notes) }}
                           />
                         </div>
                       )}
 
-                      <div className="mb-5">
-                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Captured:</label>
-                        <div className="text-[13px] text-gray-800">{new Date(selectedSolution.timestamp).toLocaleString()}</div>
-                      </div>
-
                       {selectedSolution.tags && selectedSolution.tags.length > 0 && (
-                        <div className="mb-5">
-                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Tags:</label>
+                        <div>
+                          <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Tags</label>
                           <div className="flex gap-2 flex-wrap">
-                            {selectedSolution.tags.map((tag, idx) => (
-                              <span key={idx} className="text-xs bg-gray-200 text-gray-800 px-3 py-1 rounded font-medium">
-                                {tag}
-                              </span>
+                            {selectedSolution.tags.map((tag) => (
+                              <Tag key={tag}>{tag}</Tag>
                             ))}
                           </div>
                         </div>
                       )}
 
-                      <div className="flex flex-col gap-2 mt-5">
-                        <button 
-                          className="bg-gray-800 text-white border border-gray-800 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-900" 
-                          onClick={startEditing}
-                        >
+                      <div>
+                        <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Captured</label>
+                        <div className="text-sm text-black/80 dark:text-white/90">
+                          {new Date(selectedSolution.timestamp).toLocaleString()}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 pt-4 border-t border-white/10">
+                        <Button onClick={startEditing} variant="primary">
+                          <Edit2 className="w-4 h-4" />
                           Edit Solution
-                        </button>
-                        <button 
-                          className={`bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded text-[13px] font-medium transition-colors ${isGeneratingTags ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-400'}`}
-                          onClick={() => !isGeneratingTags && generateTags(selectedSolution)}
+                        </Button>
+                        <Button
+                          onClick={() => generateTags(selectedSolution)}
+                          variant="outline"
+                          isLoading={isGeneratingTags}
                           disabled={isGeneratingTags}
                         >
-                          {isGeneratingTags ? 'Generating...' : (selectedSolution.tags && selectedSolution.tags.length > 0 ? 'Regenerate Tags' : 'Generate Tags with AI')}
-                        </button>
-                        <button 
-                          className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-400" 
-                          onClick={() => copyToClipboard(selectedSolution.text)}
-                        >
+                          <Sparkles className="w-4 h-4" />
+                          {selectedSolution.tags?.length ? 'Regenerate Tags' : 'Generate Tags'}
+                        </Button>
+                        <Button onClick={() => copyToClipboard(selectedSolution.text)} variant="outline">
+                          <Copy className="w-4 h-4" />
                           Copy Text
-                        </button>
-                        <button 
-                          className="bg-gray-100 text-gray-700 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-300" 
-                          onClick={() => deleteSolution(selectedSolution.id)}
-                        >
+                        </Button>
+                        <Button onClick={() => deleteSolution(selectedSolution.id)} variant="ghost">
+                          <Trash2 className="w-4 h-4" />
                           Delete
-                        </button>
-                      </div>
-                    </>
-                  )}
+                        </Button>
                 </div>
               </div>
             )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </>
       )}
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

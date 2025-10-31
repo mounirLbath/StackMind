@@ -389,7 +389,8 @@ Generate title:`;
       width: 1000,
       height: 700
     });
-    return true;
+    sendResponse({ success: true });
+    return false; // No async response needed
   }
 
   if (message.action === 'openPopup') {
@@ -405,12 +406,14 @@ Generate title:`;
     if (_sender.tab?.id) {
       // Message came from content script
       sendToTab(_sender.tab.id);
+      sendResponse({ success: true });
     } else {
       // Message came from popup, find the active tab
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
           sendToTab(tabs[0].id);
         }
+        sendResponse({ success: true });
       });
     }
     return true;
@@ -428,7 +431,8 @@ Generate title:`;
     if (task) {
       (task as any).notes = message.notes;
     }
-    return true;
+    sendResponse({ success: true });
+    return false; // No async response needed
   }
 
   if (message.action === 'processInBackground') {
