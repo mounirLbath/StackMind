@@ -255,16 +255,16 @@ class SolutionCapture {
     this.floatingButton.id = 'stackmind-capture-btn';
     this.floatingButton.innerHTML = `
       <button style="
-        backdrop-filter: blur(16px) saturate(180%);
-        background: linear-gradient(135deg, #4285F4 0%, #3367D6 100%);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(12px);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         padding: 10px 16px;
         border-radius: 10px;
         cursor: pointer;
         font-size: 13px;
         font-weight: 600;
-        box-shadow: 0 8px 24px rgba(66, 133, 244, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15);
+        color: rgba(0, 0, 0, 0.8);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -272,10 +272,10 @@ class SolutionCapture {
         z-index: 10000;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       " 
-      onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(66, 133, 244, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2)'; this.style.background='linear-gradient(135deg, #3367D6 0%, #2557C7 100%)';"
-      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(66, 133, 244, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15)'; this.style.background='linear-gradient(135deg, #4285F4 0%, #3367D6 100%)';">
+      onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(0, 0, 0, 0.15)'; this.style.background='rgba(255, 255, 255, 0.2)';"
+      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 16px rgba(0, 0, 0, 0.1)'; this.style.background='rgba(255, 255, 255, 0.1)';">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 2v12M2 8h12" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
         </svg>
         Capture Solution
       </button>
@@ -543,7 +543,7 @@ class SolutionCapture {
               transition: all 0.2s;
               color: #1a1a1a;
               line-height: 1.5;
-            " onfocus="this.style.borderColor='rgba(66, 133, 244, 0.6)'; this.style.boxShadow='0 0 0 1px rgba(66, 133, 244, 0.4)'" onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.boxShadow='none'"></textarea>
+            " onfocus="this.style.borderColor='rgba(66, 133, 244, 0.6)'; this.style.boxShadow='0 0 0 1px rgba(66, 133, 244, 0.4)'" onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.boxShadow='none'">${this.escapeHtml(task.notes || '')}</textarea>
           </div>
 
           <div style="display: flex; gap: 12px; justify-content: flex-end;">
@@ -561,21 +561,6 @@ class SolutionCapture {
               box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
             " onmouseover="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.transform='scale(1.02)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='scale(1)';">
               Close
-            </button>
-            <button id="stackmind-save-notes" style="
-              backdrop-filter: blur(12px);
-              background: rgba(255, 255, 255, 0.1);
-              color: rgba(0, 0, 0, 0.8);
-              border: 1px solid rgba(255, 255, 255, 0.2);
-              padding: 8px 16px;
-              border-radius: 8px;
-              cursor: pointer;
-              font-size: 14px;
-              font-weight: 500;
-              transition: all 0.2s;
-              box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
-            " onmouseover="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.transform='scale(1.02)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='scale(1)';">
-              Save & Close
             </button>
           </div>
         </div>
@@ -634,10 +619,27 @@ class SolutionCapture {
           }
         });
         
+        // Auto-close the panel and show success notification
         setTimeout(() => {
           this.hideCapturePanel();
           chrome.runtime.onMessage.removeListener(updateListener);
-        }, 2000);
+          this.showPageNotification(message.pageTitle || 'Solution saved successfully!');
+        }, 1500);
+      }
+      
+      if (message.action === 'backgroundTaskReview' && message.taskId === task.id) {
+        // All processing steps complete, mark all as done
+        const formatEl = document.getElementById('progress-format');
+        const titleEl = document.getElementById('progress-title');
+        const tagsEl = document.getElementById('progress-tags');
+        const summaryEl = document.getElementById('progress-summary');
+
+        [formatEl, titleEl, tagsEl, summaryEl].forEach(el => {
+          if (el) {
+            el.textContent = '✓';
+            el.style.color = '#10b981';
+          }
+        });
       }
     };
 
@@ -645,16 +647,16 @@ class SolutionCapture {
 
     const closeBtn = document.getElementById('stackmind-close-panel');
     const closeBtnBottom = document.getElementById('stackmind-close-btn');
-    const saveBtn = document.getElementById('stackmind-save-notes');
+    const notesTextarea = document.getElementById('stackmind-notes') as HTMLTextAreaElement;
     const backdrop = document.getElementById('stackmind-backdrop');
 
     closeBtn?.addEventListener('click', () => this.hideCapturePanel());
     closeBtnBottom?.addEventListener('click', () => this.hideCapturePanel());
     backdrop?.addEventListener('click', () => this.hideCapturePanel());
     
-    saveBtn?.addEventListener('click', () => {
-      const notesTextarea = document.getElementById('stackmind-notes') as HTMLTextAreaElement;
-      const notes = notesTextarea?.value || '';
+    // Auto-save notes in real-time as user types
+    notesTextarea?.addEventListener('input', () => {
+      const notes = notesTextarea.value || '';
       
       try {
         if (this.checkExtensionContext()) {
@@ -667,8 +669,6 @@ class SolutionCapture {
       } catch (e) {
         console.warn('MindStack: Failed to save notes - context invalidated');
       }
-      
-      this.hideCapturePanel();
     });
   }
 

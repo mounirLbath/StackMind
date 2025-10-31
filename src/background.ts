@@ -12,7 +12,7 @@ let isInitializingSummarizer = false;
 // Background tasks tracker
 interface BackgroundTask {
   id: string;
-  status: 'processing' | 'completed' | 'error' | 'review';
+  status: 'processing' | 'completed' | 'error';
   progress: {
     format: boolean;
     title: boolean;
@@ -22,8 +22,7 @@ interface BackgroundTask {
   pageTitle: string;
   startTime: number;
   notes?: string;
-  viewed?: boolean; // Track if the task has been viewed
-  // For review state
+  // For displaying during processing
   generatedData?: {
     text: string;
     title: string;
@@ -390,21 +389,6 @@ Generate title:`;
     return true;
   }
 
-  if (message.action === 'markTaskViewed') {
-    const task = backgroundTasks.find(t => t.id === message.taskId);
-    if (task) {
-      task.viewed = true;
-      // Save updated tasks to storage
-      chrome.storage.local.set({ backgroundTasks }).then(() => {
-        notifyPopup('backgroundTaskUpdate');
-        sendResponse({ success: true });
-      });
-    } else {
-      sendResponse({ success: false });
-    }
-    return true;
-  }
-
   if (message.action === 'openExtensionWindow') {
     // Open the extension in a popup window
     const url = chrome.runtime.getURL('index.html');
@@ -462,47 +446,6 @@ Generate title:`;
     return false; // No async response needed
   }
 
-  if (message.action === 'approveSolution') {
-    (async () => {
-      const task = backgroundTasks.find(t => t.id === message.taskId);
-      if (task && task.generatedData) {
-        // Save the solution with any edits
-        const solution = {
-          id: Date.now().toString(),
-          text: message.editedData?.text || task.generatedData.text,
-          summary: message.editedData?.summary || task.generatedData.summary,
-          url: task.generatedData.url,
-          title: message.editedData?.title || task.generatedData.title,
-          timestamp: Date.now(),
-          tags: message.editedData?.tags || task.generatedData.tags,
-          notes: message.editedData?.notes || task.notes || ''
-        };
-
-        const result = await chrome.storage.local.get(['solutions']);
-        const solutions = result.solutions || [];
-        solutions.unshift(solution);
-        await chrome.storage.local.set({ solutions });
-        
-        // Remove task from background tasks
-        backgroundTasks = backgroundTasks.filter(t => t.id !== message.taskId);
-        
-        notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle, taskId: message.taskId });
-        sendResponse({ success: true });
-      } else {
-        sendResponse({ success: false });
-      }
-    })();
-    return true;
-  }
-
-  if (message.action === 'rejectSolution') {
-    // Simply remove the task without saving
-    backgroundTasks = backgroundTasks.filter(t => t.id !== message.taskId);
-    notifyPopup('backgroundTaskUpdate');
-    sendResponse({ success: true });
-    return false;
-  }
-
   if (message.action === 'processInBackground') {
     (async () => {
       const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, isFormatted, notes, taskId: providedTaskId } = message;
@@ -537,14 +480,24 @@ Generate title:`;
           text: selectedText
         };
 
+        // Initialize generatedData for progressive display
+        task.generatedData = {
+          text: selectedText,
+          title: currentTitle || '',
+          tags: currentTags || [],
+          summary: currentSummary || '',
+          url: url
+        };
+
         // Format text with code backticks (only if not already formatted)
         if (!isFormatted) {
           try {
             if (!aiSession) await initializeAISession();
             if (aiSession) {
-              const formatPrompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT same text, just add markdown code formatting where appropriate. Do not summarize or change the content:\n\n${selectedText}`;
+              const formatPrompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT SAME TEXT, just add markdown code formatting where appropriate. DO NOT SUMMARIZE OR CHANGE THE CONTENT:\n\n${selectedText}`;
               const formatted = await aiSession.prompt(formatPrompt);
               results.text = formatted.trim();
+              task.generatedData.text = formatted.trim();
               task.progress.format = true;
               notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
@@ -561,9 +514,16 @@ Generate title:`;
           try {
             if (!aiSession) await initializeAISession();
             if (aiSession) {
-              const titlePrompt = `Generate a concise technical title (max 10 words) for this Stack Overflow solution:\n\nPage: ${pageTitle}\n\nContent: ${selectedText.substring(0, 500)}`;
+              const titlePrompt = `You are a title generator. Generate ONE concise technical title (max 10 words) for this Stack Overflow solution. Output ONLY the title text, no explanations, no quotes, no additional text.
+
+Page: ${pageTitle}
+
+Content: ${selectedText.substring(0, 500)}
+
+Title:`;
               const generatedTitle = await aiSession.prompt(titlePrompt);
-              results.title = generatedTitle.trim().replace(/^["']|["']$/g, '');
+              results.title = generatedTitle.trim().replace(/^["']|["']$/g, '').split('\n')[0];
+              task.generatedData.title = results.title;
               task.progress.title = true;
               notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
@@ -580,6 +540,7 @@ Generate title:`;
               const tagsPrompt = `Generate 3-5 relevant technical tags (keywords) for this Stack Overflow solution. Return ONLY a comma-separated list of tags, nothing else:\n\n${selectedText.substring(0, 500)}`;
               const generatedTags = await aiSession.prompt(tagsPrompt);
               results.tags = generatedTags.toLowerCase().split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0);
+              task.generatedData.tags = results.tags;
               task.progress.tags = true;
               notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
@@ -595,6 +556,7 @@ Generate title:`;
             if (summarizerSession) {
               const summary = await summarizerSession.summarize(selectedText);
               results.summary = summary.trim();
+              task.generatedData.summary = results.summary;
               task.progress.summary = true;
               notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
@@ -606,23 +568,39 @@ Generate title:`;
         // Get notes from the task if they were updated
         const taskNotes = task.notes || notes;
         
-        // Instead of auto-saving, move to review state
-        task.status = 'review';
-        task.generatedData = {
+        // Auto-save the solution when processing completes
+        const solution = {
+          id: Date.now().toString(),
           text: results.text,
-          title: results.title || pageTitle || 'Untitled Solution',
-          tags: results.tags,
           summary: results.summary,
-          url: url
+          url: url,
+          title: results.title || pageTitle || 'Untitled Solution',
+          timestamp: Date.now(),
+          tags: results.tags,
+          notes: taskNotes || ''
         };
+
+        const storageResult = await chrome.storage.local.get(['solutions']);
+        const solutions = storageResult.solutions || [];
+        solutions.unshift(solution);
+        await chrome.storage.local.set({ solutions });
         
-        // Update notes in the task
-        task.notes = taskNotes;
+        // Remove task from background tasks
+        backgroundTasks = backgroundTasks.filter(t => t.id !== taskId);
         
-        notifyPopup('backgroundTaskReview', { pageTitle: task.pageTitle, taskId: taskId });
+        // Notify that the task is complete and saved
+        notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle, taskId: taskId });
         
-        // Task stays in review state - user must manually approve/reject
-        // Don't auto-remove or auto-save
+        // Show success notification in the source tab
+        if (sourceTabId) {
+          chrome.tabs.sendMessage(sourceTabId, {
+            action: 'showCompletionNotification',
+            title: results.title || pageTitle || 'Untitled Solution'
+          }).catch(() => {});
+        }
+        
+        // Stop keep-alive
+        stopKeepAlive();
 
       } catch (error) {
         console.error('Background processing error:', error);
