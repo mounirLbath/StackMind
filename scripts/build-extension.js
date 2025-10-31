@@ -29,5 +29,23 @@ iconFiles.forEach(icon => {
   }
 });
 
+// Copy MediaPipe WASM files to dist/wasm
+const wasmSourceDir = path.resolve(__dirname, '../node_modules/@mediapipe/tasks-text/wasm');
+const wasmDestDir = path.resolve(__dirname, '../dist/wasm');
+
+if (fs.existsSync(wasmSourceDir)) {
+  if (!fs.existsSync(wasmDestDir)) {
+    fs.mkdirSync(wasmDestDir, { recursive: true });
+  }
+  
+  const wasmFiles = fs.readdirSync(wasmSourceDir);
+  wasmFiles.forEach(file => {
+    const src = path.join(wasmSourceDir, file);
+    const dest = path.join(wasmDestDir, file);
+    fs.copyFileSync(src, dest);
+  });
+  console.log('✓ Copied MediaPipe WASM files to dist/wasm/');
+}
+
 console.log('✓ Extension build complete!');
 

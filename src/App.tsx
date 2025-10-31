@@ -29,6 +29,8 @@ function App() {
   const [solutions, setSolutions] = useState<CapturedSolution[]>([]);
   const [selectedSolution, setSelectedSolution] = useState<CapturedSolution | null>(null);
   const [filter, setFilter] = useState('');
+  const [searchMode, setSearchMode] = useState<'semantic' | 'keyword'>('semantic');
+  const [isSearching, setIsSearching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -265,13 +267,95 @@ function App() {
     });
   };
 
-  const filteredSolutions = solutions.filter(s => 
-    s.text.toLowerCase().includes(filter.toLowerCase()) ||
-    s.title.toLowerCase().includes(filter.toLowerCase()) ||
-    (s.notes && s.notes.toLowerCase().includes(filter.toLowerCase())) ||
-    (s.tags && s.tags.some(tag => tag.toLowerCase().includes(filter.toLowerCase()))) ||
-    (s.summary && s.summary.toLowerCase().includes(filter.toLowerCase()))
-  );
+  // Handle semantic or keyword search
+  const [searchResults, setSearchResults] = useState<CapturedSolution[]>([]);
+  const [semanticSearchQuery, setSemanticSearchQuery] = useState('');
+
+  // Perform keyword search (fast, immediate)
+  const performKeywordSearch = (query: string) => {
+    if (!query.trim()) {
+      setSearchResults(solutions);
+      return;
+    }
+
+    const keywordResults = solutions.filter(s => 
+      s.text.toLowerCase().includes(query.toLowerCase()) ||
+      s.title.toLowerCase().includes(query.toLowerCase()) ||
+      (s.notes && s.notes.toLowerCase().includes(query.toLowerCase())) ||
+      (s.tags && s.tags.some(tag => tag.toLowerCase().includes(query.toLowerCase()))) ||
+      (s.summary && s.summary.toLowerCase().includes(query.toLowerCase()))
+    );
+    setSearchResults(keywordResults);
+  };
+
+  // Perform semantic search (slow, debounced)
+  const performSemanticSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults(solutions);
+      return;
+    }
+
+    setIsSearching(true);
+    chrome.runtime.sendMessage(
+      {
+        action: 'semanticSearch',
+        query: query,
+        searchMode: 'semantic',
+        topK: 5
+      },
+      (response) => {
+        setIsSearching(false);
+        if (response && response.success) {
+          setSearchResults(response.solutions || []);
+        } else {
+          // Fallback to keyword search on error
+          performKeywordSearch(query);
+        }
+      }
+    );
+  };
+
+  // Debounce semantic search - wait 1s after user stops typing
+  useEffect(() => {
+    if (searchMode !== 'semantic') return;
+
+    if (!filter.trim()) {
+      setSearchResults(solutions);
+      setSemanticSearchQuery('');
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setSemanticSearchQuery(filter);
+    }, 1000); // 1000ms (1s) debounce delay
+
+    return () => clearTimeout(timeoutId);
+  }, [filter, searchMode, solutions]);
+
+  // Execute semantic search when debounced query is ready
+  useEffect(() => {
+    if (searchMode === 'semantic' && semanticSearchQuery) {
+      performSemanticSearch(semanticSearchQuery);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }
+  }, [semanticSearchQuery]);
+
+  // Immediate keyword search (no debounce)
+  useEffect(() => {
+    if (searchMode === 'keyword') {
+      performKeywordSearch(filter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, searchMode]);
+
+  // Initialize search results with all solutions
+  useEffect(() => {
+    if (!loading && !filter.trim()) {
+      setSearchResults(solutions);
+    }
+  }, [solutions, loading, filter]);
+
+  const filteredSolutions = searchResults;
 
   const formatDate = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -472,15 +556,44 @@ function App() {
         </div>
       ) : (
         <>
-          <div className="bg-gray-50 px-5 py-3 flex gap-3 items-center border-b border-gray-300">
-            <input
-              type="text"
-              placeholder="Search solutions..."
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              className="flex-1 border border-gray-400 rounded px-3 py-2 text-sm outline-none bg-white transition-colors focus:border-gray-600"
-            />
-            <span className="text-xs text-gray-600 font-medium whitespace-nowrap">{filteredSolutions.length} solution{filteredSolutions.length !== 1 ? 's' : ''}</span>
+          <div className="bg-gray-50 px-5 py-3 border-b border-gray-300">
+            <div className="flex gap-3 items-center mb-2">
+              <input
+                type="text"
+                placeholder={searchMode === 'semantic' ? "Search semantically (e.g., 'async error handling')..." : "Search by keywords..."}
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="flex-1 border border-gray-400 rounded px-3 py-2 text-sm outline-none bg-white transition-colors focus:border-gray-600"
+                disabled={isSearching}
+              />
+              <span className="text-xs text-gray-600 font-medium whitespace-nowrap">
+                {isSearching ? 'Searching...' : `${filteredSolutions.length} solution${filteredSolutions.length !== 1 ? 's' : ''}`}
+              </span>
+            </div>
+            <div className="flex gap-4 items-center">
+              <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="radio"
+                  name="searchMode"
+                  value="semantic"
+                  checked={searchMode === 'semantic'}
+                  onChange={() => setSearchMode('semantic')}
+                  className="cursor-pointer"
+                />
+                <span>Semantic Search (AI-powered)</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                <input
+                  type="radio"
+                  name="searchMode"
+                  value="keyword"
+                  checked={searchMode === 'keyword'}
+                  onChange={() => setSearchMode('keyword')}
+                  className="cursor-pointer"
+                />
+                <span>Keyword Search</span>
+              </label>
+            </div>
           </div>
 
           <div className="flex-1 flex overflow-hidden bg-white min-h-0">

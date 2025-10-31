@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mediapipe/tasks-text": "^0.10.22-rc.20250304",
     "@tailwindcss/vite": "^4.1.16",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

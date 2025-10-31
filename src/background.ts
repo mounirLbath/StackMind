@@ -3,6 +3,7 @@
 
 import { db } from './db';
 import type { Solution } from './db';
+import { embeddingService } from './embeddings';
 
 // Global AI session for tag generation
 let aiSession: any = null;
@@ -245,6 +246,61 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch (error) {
         console.error('Error in advanced search:', error);
         sendResponse({ solutions: [] });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'semanticSearch') {
+    (async () => {
+      try {
+        const { query, searchMode = 'semantic', topK = 5 } = message;
+        
+        if (!query || !query.trim()) {
+          sendResponse({ solutions: [] });
+          return;
+        }
+
+        let results: Solution[] = [];
+
+        if (searchMode === 'semantic') {
+          // Try semantic search first
+          try {
+            const queryEmbedding = await embeddingService.generateEmbedding(query);
+            
+            if (queryEmbedding) {
+              results = await db.semanticSearch(
+                Array.from(queryEmbedding),
+                topK,
+                0.5 // similarity threshold
+              );
+            } else {
+              // Embedding generation failed, fallback to keyword search
+              console.warn('Embedding generation failed, falling back to keyword search');
+              results = await db.search(query);
+            }
+          } catch (error) {
+            console.error('Semantic search error, falling back to keyword search:', error);
+            // Fallback to keyword search
+            results = await db.search(query);
+          }
+        } else {
+          // Keyword search
+          results = await db.search(query);
+        }
+
+        sendResponse({ 
+          success: true,
+          solutions: results,
+          searchMode: results.length > 0 || searchMode === 'keyword' ? searchMode : 'keyword' // If semantic returned 0, indicate fallback
+        });
+      } catch (error) {
+        console.error('Search error:', error);
+        sendResponse({ 
+          success: false,
+          solutions: [],
+          error: (error as Error).message 
+        });
       }
     })();
     return true;
@@ -611,6 +667,19 @@ Generate title:`;
           }
         }
 
+        // Generate embedding for semantic search (only for new solutions)
+        let embedding: number[] | undefined = undefined;
+        try {
+          const embeddingVector = await embeddingService.generateEmbedding(results.text);
+          if (embeddingVector) {
+            embedding = Array.from(embeddingVector); // Convert Float32Array to number[] for storage
+          }
+        } catch (error) {
+          console.error('Background embedding generation failed:', error);
+          // Continue without embedding - solution will still be saved
+          // Will fall back to keyword search if needed
+        }
+
         // Get notes from the task if they were updated
         const taskNotes = (task as any).notes || notes;
         
@@ -623,7 +692,8 @@ Generate title:`;
           title: results.title || pageTitle || 'Untitled Solution',
           timestamp: Date.now(),
           tags: results.tags,
-          notes: taskNotes
+          notes: taskNotes,
+          embedding: embedding // Include embedding if generated successfully
         };
 
         await db.addSolution(solution);

@@ -10,8 +10,7 @@ export interface Solution {
   timestamp: number;
   tags: string[];
   notes?: string;
-  // Future: add embeddings for semantic search
-  // embedding?: number[];
+  embedding?: number[]; // 512-dimensional vector for semantic search
 }
 
 const DB_NAME = 'MindStackDB';
@@ -190,6 +189,43 @@ class SolutionDB {
 
       return searchableText.includes(lowerQuery);
     });
+
+    return results;
+  }
+
+  // Semantic search using vector embeddings
+  // Note: queryEmbedding should be generated using embeddingService
+  async semanticSearch(
+    queryEmbedding: Float32Array | number[],
+    topK: number = 5,
+    threshold: number = 0.5
+  ): Promise<Solution[]> {
+    if (!this.db) await this.init();
+
+    // Import vector search utilities dynamically to avoid circular dependencies
+    const { cosineSimilarity } = await import('./vector-search');
+    
+    const allSolutions = await this.getAllSolutions();
+    
+    // Filter solutions that have embeddings
+    const solutionsWithEmbeddings = allSolutions.filter(
+      s => s.embedding && s.embedding.length > 0
+    );
+
+    if (solutionsWithEmbeddings.length === 0) {
+      return []; // No solutions with embeddings available
+    }
+
+    // Calculate similarities
+    const results = solutionsWithEmbeddings
+      .map(solution => ({
+        solution,
+        similarity: cosineSimilarity(queryEmbedding, solution.embedding!)
+      }))
+      .filter(result => result.similarity >= threshold)
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, topK)
+      .map(result => result.solution);
 
     return results;
   }
