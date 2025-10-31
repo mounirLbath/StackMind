@@ -89,7 +89,10 @@ function App() {
         },
       });
 
-      const promptText = `You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
+      console.log("Generating tags for solution:", solution);
+      const promptText = [
+        { role: 'system', content: 'You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.' },
+        { role: 'user', content: `Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
 
 Generate tags for this programming solution:
 
@@ -97,8 +100,9 @@ Title: ${solution.title}
 
 Solution: ${solution.text.substring(0, 500)}...
 
-Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
-      
+Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):` },
+      ];
+            
       const result = await session.prompt(promptText);
       
       console.log('Result:', result);
