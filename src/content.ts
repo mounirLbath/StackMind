@@ -52,6 +52,8 @@ class SolutionCapture {
       font-weight: 500;
       max-width: 350px;
       animation: slideInRight 0.3s ease;
+      cursor: pointer;
+      transition: all 0.2s ease;
     `;
     
     notification.innerHTML = `
@@ -60,9 +62,27 @@ class SolutionCapture {
         <div style="flex: 1;">
           <div style="font-weight: 600; margin-bottom: 2px;">MindStack</div>
           <div style="font-size: 13px; color: #616161;">${this.escapeHtml(title)}</div>
+          <div style="font-size: 11px; color: #9e9e9e; margin-top: 4px;">Click to view</div>
         </div>
       </div>
     `;
+    
+    // Add hover effect
+    notification.onmouseenter = () => {
+      notification.style.background = '#f0f9f4';
+      notification.style.transform = 'scale(1.02)';
+    };
+    notification.onmouseleave = () => {
+      notification.style.background = '#ffffff';
+      notification.style.transform = 'scale(1)';
+    };
+    
+    // Open extension popup window when clicked
+    notification.onclick = () => {
+      chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
+      notification.remove();
+      style.remove();
+    };
     
     const style = document.createElement('style');
     style.textContent = `
@@ -91,13 +111,21 @@ class SolutionCapture {
     document.head.appendChild(style);
     document.body.appendChild(notification);
     
-    setTimeout(() => {
-      notification.style.animation = 'slideOutRight 0.3s ease';
-      setTimeout(() => {
-        notification.remove();
-        style.remove();
-      }, 300);
-    }, 4000);
+    // Auto-dismiss after 6 seconds
+    const dismissTimeout = setTimeout(() => {
+      if (document.body.contains(notification)) {
+        notification.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+          notification.remove();
+          style.remove();
+        }, 300);
+      }
+    }, 6000);
+    
+    // Clear timeout if clicked
+    notification.addEventListener('click', () => {
+      clearTimeout(dismissTimeout);
+    });
   }
 
   private handleTextSelection(event: MouseEvent) {

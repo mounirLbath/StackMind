@@ -380,6 +380,18 @@ Generate title:`;
     return true;
   }
 
+  if (message.action === 'openExtensionWindow') {
+    // Open the extension in a popup window
+    const url = chrome.runtime.getURL('index.html');
+    chrome.windows.create({
+      url: url,
+      type: 'popup',
+      width: 1000,
+      height: 700
+    });
+    return true;
+  }
+
   if (message.action === 'openPopup') {
     // Send message to content script to show capture panel
     // Get the tab ID from sender if available, otherwise get active tab
@@ -543,72 +555,20 @@ Generate title:`;
         task.status = 'completed';
         notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle, taskId });
         
-        // Show notification on the currently active tab by injecting it directly
+        // Show notification on the currently active tab via content script
         chrome.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
           if (tabs[0]?.id) {
             const tabId = tabs[0].id;
             const notificationTitle = results.title || pageTitle || 'Solution saved successfully!';
             
             try {
-              // Inject notification directly into the page
-              await chrome.scripting.executeScript({
-                target: { tabId },
-                func: (title: string) => {
-                  const notification = document.createElement('div');
-                  notification.style.cssText = `
-                    position: fixed;
-                    top: 20px;
-                    right: 20px;
-                    background: #ffffff;
-                    color: #212121;
-                    padding: 16px 20px;
-                    border: 1px solid #4caf50;
-                    border-left: 4px solid #4caf50;
-                    border-radius: 4px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                    z-index: 999999;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    font-size: 14px;
-                    font-weight: 500;
-                    max-width: 350px;
-                    animation: slideInRight 0.3s ease;
-                  `;
-                  
-                  notification.innerHTML = `
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                      <div style="flex-shrink: 0; width: 24px; height: 24px; background: #4caf50; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">✓</div>
-                      <div style="flex: 1;">
-                        <div style="font-weight: 600; margin-bottom: 2px;">MindStack</div>
-                        <div style="font-size: 13px; color: #616161;">${title.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-                      </div>
-                    </div>
-                  `;
-                  
-                  const style = document.createElement('style');
-                  style.textContent = `
-                    @keyframes slideInRight {
-                      from { transform: translateX(400px); opacity: 0; }
-                      to { transform: translateX(0); opacity: 1; }
-                    }
-                  `;
-                  
-                  document.head.appendChild(style);
-                  document.body.appendChild(notification);
-                  
-                  setTimeout(() => {
-                    notification.style.animation = 'slideOutRight 0.3s ease';
-                    notification.style.transform = 'translateX(400px)';
-                    notification.style.opacity = '0';
-                    setTimeout(() => {
-                      notification.remove();
-                      style.remove();
-                    }, 300);
-                  }, 4000);
-                },
-                args: [notificationTitle]
+              // Send message to content script to show notification
+              chrome.tabs.sendMessage(tabId, {
+                action: 'showCompletionNotification',
+                title: notificationTitle
               });
             } catch (error) {
-              console.log('Could not inject notification:', error);
+              console.log('Could not send to content script:', error);
               // Fallback to Chrome notification
               chrome.notifications.create({
                 type: 'basic',
