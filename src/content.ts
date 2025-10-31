@@ -29,7 +29,7 @@ class StackOverflowCapture {
     // Listen for text selection
     document.addEventListener('mouseup', this.handleTextSelection.bind(this));
     
-    // Listen for messages from popup
+    // Listen for messages from popup and background
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.action === 'getPageInfo') {
         sendResponse({
@@ -37,9 +37,79 @@ class StackOverflowCapture {
           title: document.title
         });
       }
+      if (message.action === 'showCompletionNotification') {
+        this.showPageNotification(message.title || 'Solution saved successfully!');
+      }
       return true;
     });
 
+  }
+
+  private showPageNotification(title: string) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #ffffff;
+      color: #212121;
+      padding: 16px 20px;
+      border: 1px solid #4caf50;
+      border-left: 4px solid #4caf50;
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 10003;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      max-width: 350px;
+      animation: slideInRight 0.3s ease;
+    `;
+    
+    notification.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="flex-shrink: 0; width: 24px; height: 24px; background: #4caf50; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">✓</div>
+        <div style="flex: 1;">
+          <div style="font-weight: 600; margin-bottom: 2px;">MindStack</div>
+          <div style="font-size: 13px; color: #616161;">${this.escapeHtml(title)}</div>
+        </div>
+      </div>
+    `;
+    
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideInRight {
+        from {
+          transform: translateX(400px);
+          opacity: 0;
+        }
+        to {
+          transform: translateX(0);
+          opacity: 1;
+        }
+      }
+      @keyframes slideOutRight {
+        from {
+          transform: translateX(0);
+          opacity: 1;
+        }
+        to {
+          transform: translateX(400px);
+          opacity: 0;
+        }
+      }
+    `;
+    
+    document.head.appendChild(style);
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      notification.style.animation = 'slideOutRight 0.3s ease';
+      setTimeout(() => {
+        notification.remove();
+        style.remove();
+      }, 300);
+    }, 4000);
   }
 
   private handleTextSelection(event: MouseEvent) {
@@ -375,14 +445,19 @@ class StackOverflowCapture {
 
   private async generateTitle() {
     try {
-      const statusEl = document.getElementById('stackmind-title-status');
-      const inputEl = document.getElementById('stackmind-title-input') as HTMLInputElement;
-      
       chrome.runtime.sendMessage({
         action: 'generateTitle',
         pageTitle: document.title,
         text: this.selectedText.substring(0, 500)
       }, (response) => {
+        // Check if panel still exists (user might have switched tabs)
+        if (!this.capturePanel || !document.contains(this.capturePanel)) {
+          return;
+        }
+        
+        const statusEl = document.getElementById('stackmind-title-status');
+        const inputEl = document.getElementById('stackmind-title-input') as HTMLInputElement;
+        
         if (chrome.runtime.lastError || !response || !response.success) {
           if (statusEl) {
             statusEl.style.display = 'none';
@@ -417,18 +492,25 @@ class StackOverflowCapture {
 
   private async generateSummary() {
     try {
-      const statusEl = document.getElementById('stackmind-summary-status');
-      const containerEl = document.getElementById('stackmind-summary-container');
-      
       chrome.runtime.sendMessage({
         action: 'summarizeText',
         text: this.selectedText
       }, (response) => {
+        // Check if panel still exists (user might have switched tabs)
+        if (!this.capturePanel || !document.contains(this.capturePanel)) {
+          return;
+        }
+        
+        const statusEl = document.getElementById('stackmind-summary-status');
+        const containerEl = document.getElementById('stackmind-summary-container');
+        
         if (chrome.runtime.lastError || !response || !response.success) {
           if (statusEl) {
             statusEl.textContent = 'Summary not available. Full text will be saved.';
             setTimeout(() => {
-              if (statusEl) statusEl.style.display = 'none';
+              if (statusEl && document.contains(statusEl)) {
+                statusEl.style.display = 'none';
+              }
             }, 3000);
           }
           return;
@@ -452,19 +534,26 @@ class StackOverflowCapture {
 
   private async generateTags() {
     try {
-      const statusEl = document.getElementById('stackmind-tags-status');
-      
       // Send message to background script to generate tags
       chrome.runtime.sendMessage({
         action: 'generateTags',
         title: document.title,
         text: this.selectedText.substring(0, 500)
       }, (response) => {
+        // Check if panel still exists (user might have switched tabs)
+        if (!this.capturePanel || !document.contains(this.capturePanel)) {
+          return;
+        }
+        
+        const statusEl = document.getElementById('stackmind-tags-status');
+        
         if (chrome.runtime.lastError) {
           if (statusEl) {
             statusEl.textContent = 'Failed to generate tags. Add them manually below.';
             setTimeout(() => {
-              if (statusEl) statusEl.style.display = 'none';
+              if (statusEl && document.contains(statusEl)) {
+                statusEl.style.display = 'none';
+              }
             }, 3000);
           }
           return;
@@ -483,20 +572,15 @@ class StackOverflowCapture {
           if (statusEl) {
             statusEl.textContent = response?.error || 'Failed to generate tags. Add them manually below.';
             setTimeout(() => {
-              if (statusEl) statusEl.style.display = 'none';
+              if (statusEl && document.contains(statusEl)) {
+                statusEl.style.display = 'none';
+              }
             }, 3000);
           }
         }
       });
     } catch (error) {
       console.error('Error generating tags:', error);
-      const statusEl = document.getElementById('stackmind-tags-status');
-      if (statusEl) {
-        statusEl.textContent = 'Failed to generate tags. Add them manually below.';
-        setTimeout(() => {
-          if (statusEl) statusEl.style.display = 'none';
-        }, 3000);
-      }
     }
   }
 
@@ -587,8 +671,8 @@ class StackOverflowCapture {
   }
 
   private continueInBackground() {
-    // Close the panel
-    this.hideCapturePanel();
+    // Get notes before closing panel
+    const notes = (document.getElementById('stackmind-notes') as HTMLTextAreaElement)?.value || '';
     
     // Send to background script to continue processing
     chrome.runtime.sendMessage({
@@ -599,8 +683,11 @@ class StackOverflowCapture {
       currentTags: this.tags,
       currentTitle: this.generatedTitle,
       currentSummary: this.generatedSummary,
-      notes: (document.getElementById('stackmind-notes') as HTMLTextAreaElement)?.value || ''
+      notes: notes
     });
+    
+    // Close the panel
+    this.hideCapturePanel();
     
     // Show notification that processing continues
     this.showNotification('Processing solution in background...', 'info');

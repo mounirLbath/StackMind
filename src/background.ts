@@ -99,6 +99,27 @@ async function initializeSummarizer() {
   }
 }
 
+// Keep service worker alive during background processing
+let keepAliveInterval: number | null = null;
+
+function startKeepAlive() {
+  if (keepAliveInterval) return;
+  
+  keepAliveInterval = setInterval(() => {
+    // Ping to keep service worker alive
+    chrome.runtime.getPlatformInfo(() => {
+      // Just checking connection
+    });
+  }, 20000); // Every 20 seconds
+}
+
+function stopKeepAlive() {
+  if (keepAliveInterval) {
+    clearInterval(keepAliveInterval);
+    keepAliveInterval = null;
+  }
+}
+
 // Initialize on extension load (when service worker starts)
 initializeAISession();
 initializeSummarizer();
@@ -312,6 +333,10 @@ Generate title:`;
   if (message.action === 'processInBackground') {
     (async () => {
       const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, notes } = message;
+      const sourceTabId = _sender.tab?.id; // Save the tab ID where the request came from
+      
+      // Start keep-alive to prevent service worker from sleeping
+      startKeepAlive();
       
       const taskId = Date.now().toString();
       const task: BackgroundTask = {
@@ -405,33 +430,61 @@ Generate title:`;
         task.status = 'completed';
         notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle });
         
+        // Show notification in the source tab
+        if (sourceTabId) {
+          chrome.tabs.sendMessage(sourceTabId, {
+            action: 'showCompletionNotification',
+            title: results.title || pageTitle || 'Solution saved successfully!'
+          }).catch(() => {
+            // Tab might be closed, that's fine
+          });
+        }
+        
         // Remove task after 3 seconds
         setTimeout(() => {
           backgroundTasks = backgroundTasks.filter(t => t.id !== taskId);
           notifyPopup('backgroundTaskUpdate');
+          
+          // Stop keep-alive if no more tasks
+          if (backgroundTasks.length === 0) {
+            stopKeepAlive();
+          }
         }, 3000);
 
-        // Show notification
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: chrome.runtime.getURL('vite.svg'),
-          title: 'MindStack',
-          message: 'Solution processed and saved successfully!',
-          priority: 2
-        });
+        // Show Chrome notification as backup (only if tab notification failed)
+        if (!sourceTabId) {
+          chrome.notifications.create({
+            type: 'basic',
+            title: 'MindStack',
+            message: 'Solution processed and saved successfully!',
+            iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
+            priority: 2
+          });
+        }
 
       } catch (error) {
         console.error('Background processing error:', error);
         task.status = 'error';
         notifyPopup('backgroundTaskUpdate');
         
+        // Show error notification in tab if available
+        if (sourceTabId) {
+          chrome.tabs.sendMessage(sourceTabId, {
+            action: 'showCompletionNotification',
+            title: 'Failed to process solution'
+          }).catch(() => {});
+        }
+        
         chrome.notifications.create({
           type: 'basic',
-          iconUrl: chrome.runtime.getURL('vite.svg'),
           title: 'MindStack',
           message: 'Failed to process solution in background',
+          iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✗</text></svg>',
           priority: 2
         });
+        
+        // Stop keep-alive
+        stopKeepAlive();
       }
     })();
     return true;
