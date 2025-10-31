@@ -12,7 +12,7 @@ let isInitializingSummarizer = false;
 // Background tasks tracker
 interface BackgroundTask {
   id: string;
-  status: 'processing' | 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error' | 'review';
   progress: {
     format: boolean;
     title: boolean;
@@ -22,6 +22,14 @@ interface BackgroundTask {
   pageTitle: string;
   startTime: number;
   notes?: string;
+  // For review state
+  generatedData?: {
+    text: string;
+    title: string;
+    tags: string[];
+    summary: string;
+    url: string;
+  };
 }
 
 let backgroundTasks: BackgroundTask[] = [];
@@ -438,6 +446,47 @@ Generate title:`;
     return false; // No async response needed
   }
 
+  if (message.action === 'approveSolution') {
+    (async () => {
+      const task = backgroundTasks.find(t => t.id === message.taskId);
+      if (task && task.generatedData) {
+        // Save the solution with any edits
+        const solution = {
+          id: Date.now().toString(),
+          text: message.editedData?.text || task.generatedData.text,
+          summary: message.editedData?.summary || task.generatedData.summary,
+          url: task.generatedData.url,
+          title: message.editedData?.title || task.generatedData.title,
+          timestamp: Date.now(),
+          tags: message.editedData?.tags || task.generatedData.tags,
+          notes: message.editedData?.notes || task.notes || ''
+        };
+
+        const result = await chrome.storage.local.get(['solutions']);
+        const solutions = result.solutions || [];
+        solutions.unshift(solution);
+        await chrome.storage.local.set({ solutions });
+        
+        // Remove task from background tasks
+        backgroundTasks = backgroundTasks.filter(t => t.id !== message.taskId);
+        
+        notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle, taskId: message.taskId });
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'rejectSolution') {
+    // Simply remove the task without saving
+    backgroundTasks = backgroundTasks.filter(t => t.id !== message.taskId);
+    notifyPopup('backgroundTaskUpdate');
+    sendResponse({ success: true });
+    return false;
+  }
+
   if (message.action === 'processInBackground') {
     (async () => {
       const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, isFormatted, notes, taskId: providedTaskId } = message;
@@ -541,82 +590,23 @@ Generate title:`;
         // Get notes from the task if they were updated
         const taskNotes = task.notes || notes;
         
-        // Save the solution
-        const solution = {
-          id: Date.now().toString(),
-          text: results.text, // Use formatted text
-          summary: results.summary,
-          url: url,
+        // Instead of auto-saving, move to review state
+        task.status = 'review';
+        task.generatedData = {
+          text: results.text,
           title: results.title || pageTitle || 'Untitled Solution',
-          timestamp: Date.now(),
           tags: results.tags,
-          notes: taskNotes
+          summary: results.summary,
+          url: url
         };
-
-        const result = await chrome.storage.local.get(['solutions']);
-        const solutions = result.solutions || [];
-        solutions.unshift(solution);
-        await chrome.storage.local.set({ solutions });
         
-        // Mark task as completed
-        task.status = 'completed';
-        notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle, taskId });
+        // Update notes in the task
+        task.notes = taskNotes;
         
-        // Show notification on the currently active tab via content script
-        chrome.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
-          if (tabs[0]?.id) {
-            const tabId = tabs[0].id;
-            const notificationTitle = results.title || pageTitle || 'Solution saved successfully!';
-            
-            try {
-              // Send message to content script to show notification
-              chrome.tabs.sendMessage(tabId, {
-                action: 'showCompletionNotification',
-                title: notificationTitle
-              });
-            } catch (error) {
-              console.log('Could not send to content script:', error);
-              // Fallback to Chrome notification
-              chrome.notifications.create({
-                type: 'basic',
-                title: 'MindStack',
-                message: `Solution saved: ${notificationTitle}`,
-                iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
-                priority: 2
-              });
-            }
-          } else {
-            // No active tab, show Chrome notification
-            chrome.notifications.create({
-              type: 'basic',
-              title: 'MindStack',
-              message: `Solution saved: ${results.title || pageTitle}`,
-              iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
-              priority: 2
-            });
-          }
-        }).catch((error) => {
-          console.log('Could not query active tab:', error);
-          // Fallback to Chrome notification
-          chrome.notifications.create({
-            type: 'basic',
-            title: 'MindStack',
-            message: `Solution saved: ${results.title || pageTitle}`,
-            iconUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">✓</text></svg>',
-            priority: 2
-          });
-        });
+        notifyPopup('backgroundTaskReview', { pageTitle: task.pageTitle, taskId });
         
-        // Remove task after 3 seconds
-        setTimeout(() => {
-          backgroundTasks = backgroundTasks.filter(t => t.id !== taskId);
-          notifyPopup('backgroundTaskUpdate');
-          
-          // Stop keep-alive if no more tasks
-          if (backgroundTasks.length === 0) {
-            stopKeepAlive();
-          }
-        }, 3000);
+        // Task stays in review state - user must manually approve/reject
+        // Don't auto-remove or auto-save
 
       } catch (error) {
         console.error('Background processing error:', error);

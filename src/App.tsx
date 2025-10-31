@@ -17,7 +17,7 @@ interface CapturedSolution {
 
 interface BackgroundTask {
   id: string;
-  status: 'processing' | 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error' | 'review';
   progress: {
     format: boolean;
     title: boolean;
@@ -27,6 +27,14 @@ interface BackgroundTask {
   pageTitle: string;
   startTime: number;
   notes?: string;
+  // For review state
+  generatedData?: {
+    text: string;
+    title: string;
+    tags: string[];
+    summary: string;
+    url: string;
+  };
 }
 
 function App() {
@@ -37,6 +45,7 @@ function App() {
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [taskNotes, setTaskNotes] = useState<{ [key: string]: string }>({});
+  const [editedTaskData, setEditedTaskData] = useState<{ [key: string]: any }>({});
   const [isEditing, setIsEditing] = useState(false);
   const [editedSolution, setEditedSolution] = useState<CapturedSolution | null>(null);
   const [isGeneratingTags, setIsGeneratingTags] = useState(false);
@@ -56,6 +65,10 @@ function App() {
     const listener = (message: any) => {
       if (message.action === 'backgroundTaskUpdate') {
         loadBackgroundTasks();
+      }
+      if (message.action === 'backgroundTaskReview') {
+        loadBackgroundTasks();
+        showToast('Solution ready for review: ' + message.pageTitle, 'info');
       }
       if (message.action === 'backgroundTaskComplete') {
         loadBackgroundTasks();
@@ -97,14 +110,17 @@ function App() {
         if (response.tasks.length > 0 && !expandedTaskId) {
           setExpandedTaskId(response.tasks[0].id);
         }
-        // Load notes from tasks
-        const notes: { [key: string]: string } = {};
-        response.tasks.forEach((task: BackgroundTask) => {
-          if (task.notes) {
-            notes[task.id] = task.notes;
-          }
+        // Load notes from tasks, but preserve existing local notes
+        setTaskNotes(prevNotes => {
+          const notes: { [key: string]: string } = { ...prevNotes };
+          response.tasks.forEach((task: BackgroundTask) => {
+            // Only update if task has notes and we don't have local notes yet
+            if (task.notes && !notes[task.id]) {
+              notes[task.id] = task.notes;
+            }
+          });
+          return notes;
         });
-        setTaskNotes(notes);
       }
     });
   };
@@ -118,6 +134,39 @@ function App() {
     }, (response) => {
       if (response?.success) {
         showToast('Notes saved', 'success');
+      }
+    });
+  };
+
+  const approveSolution = (taskId: string) => {
+    const editedData = editedTaskData[taskId];
+    chrome.runtime.sendMessage({
+      action: 'approveSolution',
+      taskId,
+      editedData
+    }, (response) => {
+      if (response?.success) {
+        showToast('Solution saved!', 'success');
+        // Clean up edited data
+        const newEditedData = { ...editedTaskData };
+        delete newEditedData[taskId];
+        setEditedTaskData(newEditedData);
+        loadBackgroundTasks();
+        loadSolutions();
+      }
+    });
+  };
+
+  const rejectSolution = (taskId: string) => {
+    if (!confirm('Are you sure you want to discard this solution?')) return;
+    
+    chrome.runtime.sendMessage({
+      action: 'rejectSolution',
+      taskId
+    }, (response) => {
+      if (response?.success) {
+        showToast('Solution discarded', 'info');
+        loadBackgroundTasks();
       }
     });
   };
@@ -417,15 +466,17 @@ function App() {
         </div>
       </motion.header>
 
-      {/* Background Tasks Progress */}
-      <AnimatePresence>
-      {backgroundTasks.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mx-4 mt-4"
-          >
+      {/* Main Content Container with Scrolling */}
+      <div className="flex-1 overflow-y-auto">
+        {/* Background Tasks Progress */}
+        <AnimatePresence>
+          {backgroundTasks.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mx-4 mt-4"
+            >
             {backgroundTasks.map((task, idx) => {
               const isExpanded = expandedTaskId === task.id;
               return (
@@ -487,51 +538,183 @@ function App() {
                         className="border-t border-white/10"
                       >
                         <div className="p-4 space-y-4">
-                          {/* Page Info */}
-                          <div>
-                            <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
-                              Page
-                            </label>
-                            <div className="text-sm text-black/90 dark:text-white/95">{task.pageTitle}</div>
-                          </div>
+                          {task.status === 'review' && task.generatedData ? (
+                            // Review Mode - EDITABLE
+                            <>
+                              <div className="glass p-4 space-y-3">
+                                <div className="text-sm font-semibold text-green-600 dark:text-green-400 mb-2">
+                                  ✓ Processing Complete - Review & Edit
+                                </div>
+                                
+                                {/* Title - Editable */}
+                                <div>
+                                  <Input
+                                    label="Title"
+                                    value={editedTaskData[task.id]?.title ?? task.generatedData.title}
+                                    onChange={(e) => setEditedTaskData({
+                                      ...editedTaskData,
+                                      [task.id]: {
+                                        ...editedTaskData[task.id],
+                                        title: e.target.value
+                                      }
+                                    })}
+                                  />
+                                </div>
 
-                          {/* Notes Field */}
-                          <div>
-                            <Textarea
-                              label="Notes (Optional)"
-                              placeholder="Add context, notes, or why this solution works..."
-                              rows={4}
-                              value={taskNotes[task.id] || ''}
-                              onChange={(e) => setTaskNotes({ ...taskNotes, [task.id]: e.target.value })}
-                            />
-                          </div>
+                                {/* Tags - Editable */}
+                                <div>
+                                  <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                                    Tags
+                                  </label>
+                                  <div className="flex flex-wrap gap-2 mb-2">
+                                    {(editedTaskData[task.id]?.tags ?? task.generatedData?.tags ?? []).map((tag: string, idx: number) => (
+                                      <Tag
+                                        key={idx}
+                                        onRemove={() => {
+                                          const currentTags = editedTaskData[task.id]?.tags ?? task.generatedData?.tags ?? [];
+                                          setEditedTaskData({
+                                            ...editedTaskData,
+                                            [task.id]: {
+                                              ...editedTaskData[task.id],
+                                              tags: currentTags.filter((_: string, i: number) => i !== idx)
+                                            }
+                                          });
+                                        }}
+                                      >
+                                        {tag}
+                                      </Tag>
+                                    ))}
+                                  </div>
+                                  <Input
+                                    placeholder="Add new tag..."
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                                        const currentTags = editedTaskData[task.id]?.tags ?? task.generatedData?.tags ?? [];
+                                        setEditedTaskData({
+                                          ...editedTaskData,
+                                          [task.id]: {
+                                            ...editedTaskData[task.id],
+                                            tags: [...currentTags, e.currentTarget.value.trim()]
+                                          }
+                                        });
+                                        e.currentTarget.value = '';
+                                      }
+                                    }}
+                                  />
+                                </div>
 
-                          {/* Actions */}
-                          <div className="flex gap-2 justify-end">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                saveTaskNotes(task.id);
-                              }}
-                            >
-                              Save Notes
-                            </Button>
-              </div>
-            </div>
+                                {/* Summary - Editable */}
+                                {task.generatedData.summary && (
+                                  <div>
+                                    <Textarea
+                                      label="Summary"
+                                      rows={3}
+                                      value={editedTaskData[task.id]?.summary ?? task.generatedData.summary}
+                                      onChange={(e) => setEditedTaskData({
+                                        ...editedTaskData,
+                                        [task.id]: {
+                                          ...editedTaskData[task.id],
+                                          summary: e.target.value
+                                        }
+                                      })}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Notes - Editable */}
+                                <div>
+                                  <Textarea
+                                    label="Your Notes"
+                                    placeholder="Add context, notes, or why this solution works..."
+                                    rows={3}
+                                    value={editedTaskData[task.id]?.notes ?? task.notes ?? ''}
+                                    onChange={(e) => setEditedTaskData({
+                                      ...editedTaskData,
+                                      [task.id]: {
+                                        ...editedTaskData[task.id],
+                                        notes: e.target.value
+                                      }
+                                    })}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Review Actions */}
+                              <div className="flex gap-2 justify-end pt-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    rejectSolution(task.id);
+                                  }}
+                                >
+                                  <X className="w-4 h-4" />
+                                  Discard
+                                </Button>
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    approveSolution(task.id);
+                                  }}
+                                >
+                                  <Sparkles className="w-4 h-4" />
+                                  Save Solution
+                                </Button>
+                              </div>
+                            </>
+                          ) : (
+                            // Processing Mode
+                            <>
+                              {/* Page Info */}
+                              <div>
+                                <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                                  Page
+                                </label>
+                                <div className="text-sm text-black/90 dark:text-white/95">{task.pageTitle}</div>
+                              </div>
+
+                              {/* Notes Field */}
+                              <div>
+                                <Textarea
+                                  label="Notes (Optional)"
+                                  placeholder="Add context, notes, or why this solution works..."
+                                  rows={4}
+                                  value={taskNotes[task.id] || ''}
+                                  onChange={(e) => setTaskNotes({ ...taskNotes, [task.id]: e.target.value })}
+                                />
+                              </div>
+
+                              {/* Actions */}
+                              <div className="flex gap-2 justify-end">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    saveTaskNotes(task.id);
+                                  }}
+                                >
+                                  Save Notes
+                                </Button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </motion.div>
               );
             })}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      {/* Main Content */}
-      {solutions.length === 0 ? (
+        {/* Solutions List */}
+        {solutions.length === 0 ? (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -823,6 +1006,7 @@ function App() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }
