@@ -32,7 +32,7 @@ export function Tag({ onRemove, variant = 'default', children, className = '' }:
             e.stopPropagation();
             onRemove();
           }}
-          className="ml-1 hover:bg-white/20 rounded-full p-0.5 transition-colors"
+          className="ml-1 hover:bg-white/20 rounded-full p-0.5 transition-colors cursor-pointer"
           aria-label="Remove tag"
         >
           <X className="w-3 h-3" />

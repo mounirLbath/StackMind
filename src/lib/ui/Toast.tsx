@@ -54,14 +54,14 @@ export function Toast({ message, type = 'info', isVisible, onClose, duration = 4
           {action && (
             <button
               onClick={action.onClick}
-              className="text-xs font-medium text-primary hover:text-primary-600 transition-colors"
+              className="text-xs font-medium text-primary hover:text-primary-600 transition-colors cursor-pointer"
             >
               {action.label}
             </button>
           )}
           <button
             onClick={onClose}
-            className="ml-2 hover:bg-white/20 rounded-lg p-1 transition-colors"
+            className="ml-2 hover:bg-white/20 rounded-lg p-1 transition-colors cursor-pointer"
             aria-label="Close notification"
           >
             <X className="w-4 h-4" />

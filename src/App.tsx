@@ -443,9 +443,7 @@ function App() {
         className="toolbar m-4 mb-0"
       >
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
-          </div>
+
           <h1 className="text-xl font-semibold text-black/90 dark:text-white/95">MindStack</h1>
         </div>
 
@@ -454,21 +452,21 @@ function App() {
           <div className="flex items-center gap-1 glass px-2 py-1 rounded-lg">
             <button
               onClick={() => setTheme('light')}
-              className={`p-1.5 rounded transition-colors ${theme === 'light' ? 'bg-white/30' : 'hover:bg-white/10'}`}
+              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'light' ? 'bg-white/30' : 'hover:bg-white/10'}`}
               title="Light mode"
             >
               <Sun className="w-4 h-4" />
             </button>
           <button 
               onClick={() => setTheme('system')}
-              className={`p-1.5 rounded transition-colors ${theme === 'system' ? 'bg-white/30' : 'hover:bg-white/10'}`}
+              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'system' ? 'bg-white/30' : 'hover:bg-white/10'}`}
               title="System theme"
             >
               <Laptop className="w-4 h-4" />
           </button>
             <button 
               onClick={() => setTheme('dark')}
-              className={`p-1.5 rounded transition-colors ${theme === 'dark' ? 'bg-white/30' : 'hover:bg-white/10'}`}
+              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'bg-white/30' : 'hover:bg-white/10'}`}
               title="Dark mode"
             >
               <Moon className="w-4 h-4" />
@@ -653,7 +651,7 @@ function App() {
                     </h3>
                     <button 
                       onClick={() => setSelectedTask(null)}
-                      className="hover:bg-white/20 rounded-lg p-1 transition-colors"
+                      className="hover:bg-white/20 rounded-lg p-1 transition-colors cursor-pointer"
                     >
                       <X className="w-5 h-5" />
                     </button>
@@ -991,7 +989,7 @@ function App() {
                       setIsEditing(false);
                       setEditedSolution(null);
                     }}
-                      className="hover:bg-white/20 rounded-lg p-1 transition-colors"
+                      className="hover:bg-white/20 rounded-lg p-1 transition-colors cursor-pointer"
                   >
                       <X className="w-5 h-5" />
                   </button>
@@ -1087,7 +1085,7 @@ function App() {
                           rel="noopener noreferrer" 
                           className="text-sm text-primary hover:text-primary-600 underline break-all flex items-center gap-1"
                         >
-                          View on Stack Overflow
+                          View source
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       </div>
