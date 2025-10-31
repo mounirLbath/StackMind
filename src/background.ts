@@ -1,6 +1,9 @@
 // Background service worker for MindStack extension
 // Handles extension lifecycle and message passing
 
+import { db } from './db';
+import type { Solution } from './db';
+
 // Global AI session for tag generation
 let aiSession: any = null;
 let isInitializingSession = false;
@@ -142,11 +145,22 @@ chrome.runtime.onStartup.addListener(() => {
   initializeSummarizer();
 });
 
-chrome.runtime.onInstalled.addListener(() => {
-  // Initialize storage if needed
-  chrome.storage.local.get(['solutions'], (result) => {
-    if (!result.solutions) {
-      chrome.storage.local.set({ solutions: [] });
+chrome.runtime.onInstalled.addListener(async () => {
+  // Initialize IndexedDB
+  await db.init();
+  
+  // Migrate data from chrome.storage.local if exists
+  chrome.storage.local.get(['solutions'], async (result) => {
+    if (result.solutions && result.solutions.length > 0) {
+      console.log('Migrating', result.solutions.length, 'solutions to IndexedDB...');
+      try {
+        await db.importData(result.solutions);
+        console.log('Migration complete!');
+        // Keep the old data for now as backup
+        // chrome.storage.local.remove(['solutions']);
+      } catch (error) {
+        console.error('Migration failed:', error);
+      }
     }
   });
   
@@ -159,40 +173,106 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   
     if (message.action === 'getSolutions') {
-    chrome.storage.local.get(['solutions'], (result) => {
-      sendResponse({ solutions: result.solutions || [] });
-    });
+    (async () => {
+      try {
+        const solutions = await db.getAllSolutions();
+        sendResponse({ solutions });
+      } catch (error) {
+        console.error('Error getting solutions:', error);
+        sendResponse({ solutions: [] });
+      }
+    })();
     return true; // Keep channel open for async response
   }
 
   if (message.action === 'deleteSolution') {
-    chrome.storage.local.get(['solutions'], (result) => {
-      const solutions = result.solutions || [];
-      const filtered = solutions.filter((s: any) => s.id !== message.id);
-      chrome.storage.local.set({ solutions: filtered }, () => {
+    (async () => {
+      try {
+        await db.deleteSolution(message.id);
         sendResponse({ success: true });
-      });
-    });
+      } catch (error) {
+        console.error('Error deleting solution:', error);
+        sendResponse({ success: false, error: (error as Error).message });
+      }
+    })();
     return true;
   }
 
   if (message.action === 'clearAllSolutions') {
-    chrome.storage.local.set({ solutions: [] }, () => {
-      sendResponse({ success: true });
-    });
+    (async () => {
+      try {
+        await db.clearAll();
+        sendResponse({ success: true });
+      } catch (error) {
+        console.error('Error clearing solutions:', error);
+        sendResponse({ success: false, error: (error as Error).message });
+      }
+    })();
     return true;
   }
 
   if (message.action === 'updateSolution') {
-    chrome.storage.local.get(['solutions'], (result) => {
-      const solutions = result.solutions || [];
-      const updated = solutions.map((s: any) => 
-        s.id === message.id ? { ...s, ...message.updates } : s
-      );
-      chrome.storage.local.set({ solutions: updated }, () => {
+    (async () => {
+      try {
+        await db.updateSolution(message.id, message.updates);
         sendResponse({ success: true });
-      });
-    });
+      } catch (error) {
+        console.error('Error updating solution:', error);
+        sendResponse({ success: false, error: (error as Error).message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'searchSolutions') {
+    (async () => {
+      try {
+        const results = await db.search(message.query);
+        sendResponse({ solutions: results });
+      } catch (error) {
+        console.error('Error searching solutions:', error);
+        sendResponse({ solutions: [] });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'advancedSearch') {
+    (async () => {
+      try {
+        const results = await db.advancedSearch(message.filters);
+        sendResponse({ solutions: results });
+      } catch (error) {
+        console.error('Error in advanced search:', error);
+        sendResponse({ solutions: [] });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'getAllTags') {
+    (async () => {
+      try {
+        const tags = await db.getAllTags();
+        sendResponse({ tags });
+      } catch (error) {
+        console.error('Error getting tags:', error);
+        sendResponse({ tags: [] });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'exportData') {
+    (async () => {
+      try {
+        const data = await db.exportData();
+        sendResponse({ success: true, data });
+      } catch (error) {
+        console.error('Error exporting data:', error);
+        sendResponse({ success: false, error: (error as Error).message });
+      }
+    })();
     return true;
   }
 
@@ -535,7 +615,7 @@ Generate title:`;
         const taskNotes = (task as any).notes || notes;
         
         // Save the solution
-        const solution = {
+        const solution: Solution = {
           id: Date.now().toString(),
           text: results.text, // Use formatted text
           summary: results.summary,
@@ -546,10 +626,7 @@ Generate title:`;
           notes: taskNotes
         };
 
-        const result = await chrome.storage.local.get(['solutions']);
-        const solutions = result.solutions || [];
-        solutions.unshift(solution);
-        await chrome.storage.local.set({ solutions });
+        await db.addSolution(solution);
         
         // Mark task as completed
         task.status = 'completed';
