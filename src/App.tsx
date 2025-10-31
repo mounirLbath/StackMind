@@ -31,6 +31,8 @@ function App() {
   const [showFullText, setShowFullText] = useState(false);
   const [loading, setLoading] = useState(true);
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedSolution, setEditedSolution] = useState<CapturedSolution | null>(null);
 
   useEffect(() => {
     loadSolutions();
@@ -101,6 +103,63 @@ function App() {
           setSelectedSolution(null);
         }
       }
+    });
+  };
+
+  const startEditing = () => {
+    if (selectedSolution) {
+      setEditedSolution({ ...selectedSolution });
+      setIsEditing(true);
+    }
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setEditedSolution(null);
+  };
+
+  const saveEdits = () => {
+    if (!editedSolution) return;
+
+    chrome.runtime.sendMessage({
+      action: 'updateSolution',
+      id: editedSolution.id,
+      updates: {
+        title: editedSolution.title,
+        text: editedSolution.text,
+        summary: editedSolution.summary,
+        notes: editedSolution.notes,
+        tags: editedSolution.tags
+      }
+    }, (response) => {
+      if (response?.success) {
+        const updatedSolutions = solutions.map(s =>
+          s.id === editedSolution.id ? editedSolution : s
+        );
+        setSolutions(updatedSolutions);
+        setSelectedSolution(editedSolution);
+        setIsEditing(false);
+        setEditedSolution(null);
+      }
+    });
+  };
+
+  const addTagToEdited = (tag: string) => {
+    if (!editedSolution) return;
+    const trimmedTag = tag.trim().toLowerCase();
+    if (trimmedTag && !editedSolution.tags?.includes(trimmedTag)) {
+      setEditedSolution({
+        ...editedSolution,
+        tags: [...(editedSolution.tags || []), trimmedTag]
+      });
+    }
+  };
+
+  const removeTagFromEdited = (tagToRemove: string) => {
+    if (!editedSolution) return;
+    setEditedSolution({
+      ...editedSolution,
+      tags: editedSolution.tags?.filter(tag => tag !== tagToRemove)
     });
   };
 
@@ -366,101 +425,226 @@ function App() {
 
             {selectedSolution && (
               <div className="w-[300px] min-w-[300px] max-w-[500px] lg:w-[400px] xl:w-[500px] flex flex-col bg-gray-50">
-                <div className="p-3 flex justify-end">
+                <div className="p-3 flex justify-between items-center">
+                  <h3 className="m-0 text-base text-gray-900 font-semibold">
+                    {isEditing ? 'Edit Solution' : 'Solution Details'}
+                  </h3>
                   <button 
                     className="bg-transparent border-0 text-2xl cursor-pointer text-gray-600 w-8 h-8 flex items-center justify-center rounded transition-colors hover:bg-gray-300" 
-                    onClick={() => setSelectedSolution(null)}
+                    onClick={() => {
+                      setSelectedSolution(null);
+                      setIsEditing(false);
+                      setEditedSolution(null);
+                    }}
                   >
                     ×
                   </button>
                 </div>
                 
                 <div className="flex-1 px-5 pb-5 overflow-y-auto">
-                  <h3 className="m-0 mb-5 text-base text-gray-900 font-semibold">Solution Details</h3>
-                  
-                  <div className="mb-5">
-                    <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Source:</label>
-                    <a 
-                      href={selectedSolution.url} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
-                      className="text-gray-800 underline text-[13px] break-words hover:text-gray-900"
-                    >
-                      {selectedSolution.title}
-                    </a>
-                  </div>
+                  {isEditing && editedSolution ? (
+                    <>
+                      {/* Edit Mode */}
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Title:</label>
+                        <input
+                          type="text"
+                          value={editedSolution.title}
+                          onChange={(e) => setEditedSolution({ ...editedSolution, title: e.target.value })}
+                          className="w-full border border-gray-400 rounded px-3 py-2 text-[13px] outline-none transition-colors focus:border-gray-600"
+                        />
+                      </div>
 
-                  <div className="mb-5">
-                    <div className="flex justify-between items-center mb-2">
-                      <label className="block font-semibold text-[11px] text-gray-700 uppercase tracking-wide">
-                        {selectedSolution.summary && !showFullText ? 'Summary' : 'Full Text'}:
-                      </label>
-                      {selectedSolution.summary && (
-                        <button
-                          onClick={() => setShowFullText(!showFullText)}
-                          className="text-[11px] text-gray-600 hover:text-gray-900 underline"
-                        >
-                          {showFullText ? 'Show Summary' : 'Show Full Text'}
-                        </button>
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Full Text:</label>
+                        <textarea
+                          value={editedSolution.text}
+                          onChange={(e) => setEditedSolution({ ...editedSolution, text: e.target.value })}
+                          className="w-full min-h-[150px] border border-gray-400 rounded px-3 py-2 text-[13px] outline-none resize-vertical transition-colors focus:border-gray-600 font-mono"
+                        />
+                      </div>
+
+                      {editedSolution.summary && (
+                        <div className="mb-5">
+                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">AI Summary (Markdown):</label>
+                          <textarea
+                            value={editedSolution.summary}
+                            onChange={(e) => setEditedSolution({ ...editedSolution, summary: e.target.value })}
+                            placeholder="AI-generated summary..."
+                            className="w-full min-h-[100px] border border-gray-400 rounded px-3 py-2 text-[13px] outline-none resize-vertical transition-colors focus:border-gray-600"
+                          />
+                          {editedSolution.summary && (
+                            <div className="mt-2 p-3 bg-gray-50 border border-gray-300 rounded text-[13px]">
+                              <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">Preview:</div>
+                              <div
+                                dangerouslySetInnerHTML={{ __html: parseMarkdown(editedSolution.summary) }}
+                              />
+                            </div>
+                          )}
+                        </div>
                       )}
-                    </div>
-                    <div 
-                      className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto break-words"
-                      dangerouslySetInnerHTML={{
-                        __html: selectedSolution.summary && !showFullText 
-                          ? parseMarkdown(selectedSolution.summary)
-                          : selectedSolution.text.replace(/\n/g, '<br>')
-                      }}
-                    />
-                  </div>
 
-                  {selectedSolution.notes && (
-                    <div className="mb-5">
-                      <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Notes:</label>
-                      <div className="bg-gray-100 border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800">
-                        {selectedSolution.notes}
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Tags:</label>
+                        <div className="flex gap-2 flex-wrap mb-2">
+                          {editedSolution.tags?.map((tag, idx) => (
+                            <span key={idx} className="text-xs bg-gray-200 text-gray-800 px-3 py-1 rounded font-medium flex items-center gap-1">
+                              {tag}
+                              <button
+                                onClick={() => removeTagFromEdited(tag)}
+                                className="text-gray-600 hover:text-gray-900 font-bold"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Add tag (press Enter)"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                              addTagToEdited(e.currentTarget.value);
+                              e.currentTarget.value = '';
+                            }
+                          }}
+                          className="w-full border border-gray-400 rounded px-3 py-2 text-[13px] outline-none transition-colors focus:border-gray-600"
+                        />
                       </div>
-                    </div>
-                  )}
 
-                  <div className="mb-5">
-                    <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Captured:</label>
-                    <div className="text-[13px] text-gray-800">{new Date(selectedSolution.timestamp).toLocaleString()}</div>
-                  </div>
-
-                  {selectedSolution.tags && selectedSolution.tags.length > 0 && (
-                    <div className="mb-5">
-                      <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Tags:</label>
-                      <div className="flex gap-2 flex-wrap">
-                        {selectedSolution.tags.map((tag, idx) => (
-                          <span key={idx} className="text-xs bg-gray-200 text-gray-800 px-3 py-1 rounded font-medium">
-                            {tag}
-                          </span>
-                        ))}
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Notes (Markdown supported):</label>
+                        <textarea
+                          value={editedSolution.notes || ''}
+                          onChange={(e) => setEditedSolution({ ...editedSolution, notes: e.target.value })}
+                          placeholder="Add notes... (supports **bold**, *italic*, `code`, etc.)"
+                          className="w-full min-h-[120px] border border-gray-400 rounded px-3 py-2 text-[13px] outline-none resize-vertical transition-colors focus:border-gray-600"
+                        />
+                        {editedSolution.notes && (
+                          <div className="mt-2 p-3 bg-gray-50 border border-gray-300 rounded text-[13px]">
+                            <div className="text-[10px] text-gray-600 uppercase tracking-wide mb-1">Preview:</div>
+                            <div
+                              dangerouslySetInnerHTML={{ __html: parseMarkdown(editedSolution.notes) }}
+                            />
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
 
-                  <div className="flex flex-col gap-2 mt-5">
-                    <button 
-                      className="bg-gray-800 text-white border border-gray-800 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors text-left hover:bg-gray-900" 
-                      onClick={() => generateTags(selectedSolution)}
-                    >
-                      {selectedSolution.tags && selectedSolution.tags.length > 0 ? 'Regenerate Tags' : 'Generate Tags with AI'}
-                    </button>
-                    <button 
-                      className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors text-left hover:bg-gray-400" 
-                      onClick={() => copyToClipboard(selectedSolution.text)}
-                    >
-                      Copy Text
-                    </button>
-                    <button 
-                      className="bg-gray-100 text-gray-700 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors text-left hover:bg-gray-300" 
-                      onClick={() => deleteSolution(selectedSolution.id)}
-                    >
-                      Delete
-                    </button>
-                  </div>
+                      <div className="flex flex-col gap-2 mt-5">
+                        <button 
+                          className="bg-gray-800 text-white border border-gray-800 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-900" 
+                          onClick={saveEdits}
+                        >
+                          Save Changes
+                        </button>
+                        <button 
+                          className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-400" 
+                          onClick={cancelEditing}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* View Mode */}
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Title:</label>
+                        <div className="text-[14px] text-gray-900 font-medium">{selectedSolution.title}</div>
+                      </div>
+
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Source:</label>
+                        <a 
+                          href={selectedSolution.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-gray-800 underline text-[13px] break-words hover:text-gray-900"
+                        >
+                          {selectedSolution.url}
+                        </a>
+                      </div>
+
+                      <div className="mb-5">
+                        <div className="flex justify-between items-center mb-2">
+                          <label className="block font-semibold text-[11px] text-gray-700 uppercase tracking-wide">
+                            {selectedSolution.summary && !showFullText ? 'Summary' : 'Full Text'}:
+                          </label>
+                          {selectedSolution.summary && (
+                            <button
+                              onClick={() => setShowFullText(!showFullText)}
+                              className="text-[11px] text-gray-600 hover:text-gray-900 underline"
+                            >
+                              {showFullText ? 'Show Summary' : 'Show Full Text'}
+                            </button>
+                          )}
+                        </div>
+                        <div 
+                          className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto break-words"
+                          dangerouslySetInnerHTML={{
+                            __html: selectedSolution.summary && !showFullText 
+                              ? parseMarkdown(selectedSolution.summary)
+                              : selectedSolution.text.replace(/\n/g, '<br>')
+                          }}
+                        />
+                      </div>
+
+                      {selectedSolution.notes && (
+                        <div className="mb-5">
+                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Notes:</label>
+                          <div 
+                            className="bg-gray-100 border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800"
+                            dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedSolution.notes) }}
+                          />
+                        </div>
+                      )}
+
+                      <div className="mb-5">
+                        <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Captured:</label>
+                        <div className="text-[13px] text-gray-800">{new Date(selectedSolution.timestamp).toLocaleString()}</div>
+                      </div>
+
+                      {selectedSolution.tags && selectedSolution.tags.length > 0 && (
+                        <div className="mb-5">
+                          <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Tags:</label>
+                          <div className="flex gap-2 flex-wrap">
+                            {selectedSolution.tags.map((tag, idx) => (
+                              <span key={idx} className="text-xs bg-gray-200 text-gray-800 px-3 py-1 rounded font-medium">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex flex-col gap-2 mt-5">
+                        <button 
+                          className="bg-gray-800 text-white border border-gray-800 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-900" 
+                          onClick={startEditing}
+                        >
+                          Edit Solution
+                        </button>
+                        <button 
+                          className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-400" 
+                          onClick={() => generateTags(selectedSolution)}
+                        >
+                          {selectedSolution.tags && selectedSolution.tags.length > 0 ? 'Regenerate Tags' : 'Generate Tags with AI'}
+                        </button>
+                        <button 
+                          className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-400" 
+                          onClick={() => copyToClipboard(selectedSolution.text)}
+                        >
+                          Copy Text
+                        </button>
+                        <button 
+                          className="bg-gray-100 text-gray-700 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-300" 
+                          onClick={() => deleteSolution(selectedSolution.id)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
