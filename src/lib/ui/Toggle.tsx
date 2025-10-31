@@ -24,7 +24,7 @@ export function Toggle({ label, checked, onChange, className = '', ...props }: T
         />
       </div>
       {label && (
-        <span className="text-sm text-black/80 dark:text-white/90">{label}</span>
+        <span className="text-sm text-black/80 dark:text-white">{label}</span>
       )}
     </label>
   );

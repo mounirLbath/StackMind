@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Sparkles, ExternalLink, Edit2, Copy, Trash2, Moon, Sun, X, Plus } from 'lucide-react';
-import { Button, Card, Tag, Input, Textarea, Toast, useTheme } from './lib/ui';
+import { Search, Sparkles, ExternalLink, Edit2, Copy, Trash2, X, Plus } from 'lucide-react';
+import { Button, Card, Tag, Input, Textarea, Toast } from './lib/ui';
 
 interface CapturedSolution {
   id: string;
@@ -59,7 +59,6 @@ function App() {
     visible: false,
   });
 
-  const { theme, setTheme, effectiveTheme } = useTheme();
 
   // Initialize detail panel width to 66% of container
   useEffect(() => {
@@ -500,7 +499,7 @@ function App() {
 
   if (loading) {
     return (
-      <div className={`w-full min-w-[800px] min-h-[600px] h-screen flex items-center justify-center ${effectiveTheme === 'dark' ? 'gradient-dark' : 'gradient-light'}`}>
+      <div className="w-full min-w-[800px] min-h-[600px] h-screen flex items-center justify-center gradient-light">
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -508,7 +507,7 @@ function App() {
         >
           <div className="flex items-center gap-3">
             <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            <span className="text-black/80 dark:text-white/90 font-medium">Loading...</span>
+            <span className="text-black/80 dark:text-white font-medium">Loading...</span>
           </div>
         </motion.div>
       </div>
@@ -516,7 +515,7 @@ function App() {
   }
 
   return (
-    <div className={`w-full min-w-[800px] min-h-[600px] h-screen flex flex-col ${effectiveTheme === 'dark' ? 'gradient-dark' : 'gradient-light'}`}>
+    <div className="w-full min-w-[800px] min-h-[600px] h-screen flex flex-col gradient-light">
       {/* Toast Notification */}
       <Toast
         message={toast.message}
@@ -533,7 +532,7 @@ function App() {
       >
         <div className="flex items-center gap-3">
 
-          <h1 className="text-xl font-semibold text-black/90 dark:text-white/95">MindStack</h1>
+          <h1 className="text-xl font-semibold text-black/90 dark:text-white">MindStack</h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -542,30 +541,11 @@ function App() {
               Clear All
             </Button>
           )}
-          {/* Theme Toggle */}
-          <div className="flex items-center gap-1 glass px-2 py-1 rounded-lg">
-            <button
-              onClick={() => setTheme('light')}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'light' ? 'bg-white/30' : 'hover:bg-white/10'}`}
-              title="Light mode"
-            >
-              <Sun className="w-4 h-4" />
-            </button>
-            <button 
-              onClick={() => setTheme('dark')}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'bg-white/30' : 'hover:bg-white/10'}`}
-              title="Dark mode"
-            >
-              <Moon className="w-4 h-4" />
-            </button>
-          </div>
 
           <Button variant="outline" size="sm" onClick={openInWindow}>
             <ExternalLink className="w-4 h-4" />
             New Tab
           </Button>
-
-          
         </div>
       </motion.header>
 
@@ -580,10 +560,10 @@ function App() {
         >
           <Card animate className="text-center max-w-md">
             <div className="text-5xl mb-4 opacity-40">✨</div>
-            <h2 className="text-2xl font-semibold text-black/90 dark:text-white/95 mb-2">No solutions yet</h2>
+            <h2 className="text-2xl font-semibold text-black/90 dark:text-white mb-2">No solutions yet</h2>
             <p className="text-sm muted mb-6">Visit Stack Overflow and select text to capture solutions.</p>
             <div className="glass p-4 rounded-lg text-left">
-              <h3 className="text-sm font-semibold text-black/90 dark:text-white/95 mb-3">How to use:</h3>
+              <h3 className="text-sm font-semibold text-black/90 dark:text-white mb-3">How to use:</h3>
               <ol className="text-sm muted space-y-2 ml-4 list-decimal">
               <li>Go to any Stack Overflow page</li>
               <li>Select the text of a solution</li>
@@ -609,7 +589,7 @@ function App() {
               placeholder="Search solutions..."
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 text-sm bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/15 rounded-lg outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-black/40 dark:placeholder:text-white/40 transition-all"
+                className="w-full pl-10 pr-4 py-2 text-sm text-black/90 dark:!text-white bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/15 rounded-lg outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-black/40 dark:placeholder:text-white/40 transition-all"
             />
           </div>
             <span className="text-xs muted whitespace-nowrap">
@@ -648,7 +628,7 @@ function App() {
                     )}
                     
                     <div className="flex justify-between items-start gap-3 mb-2">
-                      <div className="flex-1 font-semibold text-sm text-black/90 dark:text-white/95 line-clamp-2 flex items-center gap-2">
+                      <div className="flex-1 font-semibold text-sm text-black/90 dark:text-white line-clamp-2 flex items-center gap-2">
                         <span>{task.pageTitle}</span>
                         {task.status === 'processing' && (
                           <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -691,7 +671,7 @@ function App() {
                     }`}
                   >
                     <div className="flex justify-between items-start gap-3 mb-2">
-                      <div className="flex-1 font-semibold text-sm text-black/90 dark:text-white/95 line-clamp-2">
+                      <div className="flex-1 font-semibold text-sm text-black/90 dark:text-white line-clamp-2">
                         {solution.title}
                       </div>
                       <div className="text-xs muted whitespace-nowrap">{formatDate(solution.timestamp)}</div>
@@ -744,7 +724,7 @@ function App() {
                   >
                   {/* Header */}
                   <div className="flex justify-between items-start mb-6">
-                    <h3 className="text-lg font-semibold text-black/90 dark:text-white/95">
+                    <h3 className="text-lg font-semibold text-black/90 dark:text-white">
                       {selectedTask.status === 'review' ? 'Review Solution' : 'Processing Solution'}
                     </h3>
                     <button 
@@ -765,11 +745,11 @@ function App() {
 
                         {/* Full Text Content */}
                         <div>
-                          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                          <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                             Solution Content
                           </label>
                           <div className="glass p-4 max-h-64 overflow-y-auto">
-                            <pre className="text-xs text-black/80 dark:text-white/85 whitespace-pre-wrap font-mono">
+                            <pre className="text-xs text-black/80 dark:text-white whitespace-pre-wrap font-mono">
                               {editedTaskData[selectedTask.id]?.text ?? selectedTask.generatedData.text}
                             </pre>
                           </div>
@@ -777,12 +757,12 @@ function App() {
 
                         {/* Markdown Preview */}
                         <div>
-                          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                          <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                             Markdown Preview
                           </label>
                           <div className="glass p-4 max-h-64 overflow-y-auto">
                             <div 
-                              className="prose prose-sm dark:prose-invert max-w-none text-black/80 dark:text-white/85"
+                              className="prose prose-sm dark:prose-invert max-w-none text-black/80 dark:text-white"
                               dangerouslySetInnerHTML={{
                                 __html: parseMarkdown(editedTaskData[selectedTask.id]?.text ?? selectedTask.generatedData.text)
                               }}
@@ -807,7 +787,7 @@ function App() {
 
                         {/* Tags - Editable */}
                         <div>
-                          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                          <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                             Tags
                           </label>
                           <div className="flex flex-wrap gap-2 mb-2">
@@ -914,15 +894,15 @@ function App() {
                     <div className="space-y-4">
                       {/* Page Info */}
                       <div>
-                        <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                        <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                           Page
                         </label>
-                        <div className="text-sm text-black/90 dark:text-white/95">{selectedTask.pageTitle}</div>
+                        <div className="text-sm text-black/90 dark:text-white">{selectedTask.pageTitle}</div>
                       </div>
 
                       {/* Progress Indicators */}
                       <div>
-                        <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                        <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                           Progress
                         </label>
                         <div className="glass p-4 space-y-2">
@@ -962,7 +942,7 @@ function App() {
 
                           {selectedTask.generatedData.title && (
                             <div>
-                              <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                              <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                                 Title
                               </label>
                               <Input
@@ -980,7 +960,7 @@ function App() {
 
                           {selectedTask.generatedData.tags && selectedTask.generatedData.tags.length > 0 && (
                             <div>
-                              <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                              <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                                 Tags
                               </label>
                               <div className="flex flex-wrap gap-2 mb-2">
@@ -1023,7 +1003,7 @@ function App() {
 
                           {selectedTask.generatedData.summary && (
                             <div>
-                              <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                              <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                                 Summary
                               </label>
                               <Textarea
@@ -1094,7 +1074,7 @@ function App() {
                   >
                   {/* Header */}
                   <div className="flex justify-between items-start mb-6">
-                    <h3 className="text-lg font-semibold text-black/90 dark:text-white/95">
+                    <h3 className="text-lg font-semibold text-black/90 dark:text-white">
                       {isEditing ? 'Edit Solution' : 'Details'}
                   </h3>
                   <button 
@@ -1135,7 +1115,7 @@ function App() {
                       )}
 
                       <div>
-                        <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                        <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
                           Tags
                         </label>
                         <div className="flex gap-2 flex-wrap mb-2">
@@ -1159,7 +1139,7 @@ function App() {
                                 addTagToEdited();
                               }
                             }}
-                            className="flex-1 px-3 py-2 text-sm bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/15 rounded-lg outline-none focus:ring-1 focus:ring-primary/40"
+                            className="flex-1 px-3 py-2 text-sm text-black/90 dark:!text-white bg-white/10 dark:bg-white/5 border border-white/20 dark:border-white/15 rounded-lg outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-black/40 dark:placeholder:text-white/40"
                           />
                           <Button size="sm" onClick={addTagToEdited}>
                             <Plus className="w-4 h-4" />
@@ -1188,7 +1168,7 @@ function App() {
                     <div className="space-y-4">
                       <div>
                         <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Title</label>
-                        <div className="text-sm text-black/90 dark:text-white/95 font-medium">{selectedSolution.title}</div>
+                        <div className="text-sm text-black/90 dark:text-white font-medium">{selectedSolution.title}</div>
                       </div>
 
                       <div>
@@ -1208,7 +1188,7 @@ function App() {
                         <div>
                           <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Summary</label>
                           <div
-                            className="glass p-3 text-sm text-black/80 dark:text-white/90 rounded-lg"
+                            className="glass p-3 text-sm text-black/80 dark:text-white rounded-lg"
                             dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedSolution.summary) }}
                           />
                         </div>
@@ -1217,7 +1197,7 @@ function App() {
                       <div>
                         <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Full Text</label>
                         <div
-                          className="glass p-3 text-sm text-black/80 dark:text-white/90 rounded-lg max-h-[300px] overflow-y-auto"
+                          className="glass p-3 text-sm text-black/80 dark:text-white rounded-lg max-h-[300px] overflow-y-auto"
                           dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedSolution.text) }}
                         />
                       </div>
@@ -1226,7 +1206,7 @@ function App() {
                         <div>
                           <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Notes</label>
                           <div 
-                            className="glass p-3 text-sm text-black/80 dark:text-white/90 rounded-lg"
+                            className="glass p-3 text-sm text-black/80 dark:text-white rounded-lg"
                             dangerouslySetInnerHTML={{ __html: parseMarkdown(selectedSolution.notes) }}
                           />
                         </div>
@@ -1245,7 +1225,7 @@ function App() {
 
                       <div>
                         <label className="block text-xs font-semibold muted mb-2 uppercase tracking-wide">Captured</label>
-                        <div className="text-sm text-black/80 dark:text-white/90">
+                        <div className="text-sm text-black/80 dark:text-white">
                           {new Date(selectedSolution.timestamp).toLocaleString()}
                         </div>
                       </div>

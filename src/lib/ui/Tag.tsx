@@ -9,7 +9,7 @@ interface TagProps extends Omit<HTMLAttributes<HTMLDivElement>, 'onRemove'> {
 
 export function Tag({ onRemove, variant = 'default', children, className = '' }: TagProps) {
   const variants = {
-    default: 'bg-white/14 dark:bg-white/14 text-black/80 dark:text-white/90',
+    default: 'bg-white/14 dark:bg-white/14 text-black/80 dark:text-white',
     primary: 'bg-primary/20 text-primary-600 dark:text-primary',
     success: 'bg-green-500/20 text-green-700 dark:text-green-400',
     warning: 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400',

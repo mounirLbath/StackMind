@@ -49,7 +49,7 @@ export function Toast({ message, type = 'info', isVisible, onClose, duration = 4
         >
           {icons[type]}
           <div className="flex-1">
-            <p className="text-sm text-black/90 dark:text-white/95 font-medium">{message}</p>
+            <p className="text-sm text-black/90 dark:text-white font-medium">{message}</p>
           </div>
           {action && (
             <button

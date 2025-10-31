@@ -11,7 +11,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="w-full">
         {label && (
-          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+          <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
             {label}
           </label>
         )}
@@ -19,6 +19,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           ref={ref}
           className={`
             w-full px-3 py-2 text-sm
+            text-black/90 dark:!text-white
             backdrop-blur-md bg-white/10 dark:bg-white/5
             border border-white/20 dark:border-white/15
             rounded-lg
@@ -52,7 +53,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     return (
       <div className="w-full">
         {label && (
-          <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+          <label className="block text-xs font-semibold text-black/70 dark:text-white mb-2 uppercase tracking-wide">
             {label}
           </label>
         )}
@@ -61,6 +62,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           rows={rows}
           className={`
             w-full px-3 py-2 text-sm
+            text-black/90 dark:!text-white
             backdrop-blur-md bg-white/10 dark:bg-white/5
             border border-white/20 dark:border-white/15
             rounded-lg
