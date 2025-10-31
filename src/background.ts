@@ -61,6 +61,7 @@ async function initializeSummarizer() {
       type: 'key-points',
       format: 'markdown',
       length: 'short',
+      outputLanguage: "en",
       sharedContext: 'This is a programming solution from Stack Overflow',
       monitor(m: any) {
         m.addEventListener('downloadprogress', (e: any) => {
@@ -264,7 +265,7 @@ Generate title:`;
         }
 
         const summary = await summarizerSession.summarize(message.text, {
-          context: 'Focus on preserving code snippets and technical details while removing redundant explanations.'
+        //   context: 'Focus on preserving code snippets and technical details while removing redundant explanations.'
         });
         
         sendResponse({ success: true, summary: summary.trim() });
@@ -276,6 +277,99 @@ Generate title:`;
         initializeSummarizer();
         
         sendResponse({ success: false, error: `Failed: ${(error as Error).message}` });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'processInBackground') {
+    (async () => {
+      const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, notes } = message;
+      
+      try {
+        // Process any missing AI tasks
+        const results: any = {
+          title: currentTitle,
+          tags: currentTags || [],
+          summary: currentSummary
+        };
+
+        // Generate title if missing
+        if (!currentTitle) {
+          try {
+            if (!aiSession) await initializeAISession();
+            if (aiSession) {
+              const titlePrompt = `Generate a concise technical title (max 10 words) for this Stack Overflow solution:\n\nPage: ${pageTitle}\n\nContent: ${selectedText.substring(0, 500)}`;
+              const generatedTitle = await aiSession.prompt(titlePrompt);
+              results.title = generatedTitle.trim().replace(/^["']|["']$/g, '');
+            }
+          } catch (error) {
+            console.error('Background title generation failed:', error);
+          }
+        }
+
+        // Generate tags if missing
+        if (!currentTags || currentTags.length === 0) {
+          try {
+            if (!aiSession) await initializeAISession();
+            if (aiSession) {
+              const tagsPrompt = `Generate 3-5 relevant technical tags (keywords) for this Stack Overflow solution. Return ONLY a comma-separated list of tags, nothing else:\n\n${selectedText.substring(0, 500)}`;
+              const generatedTags = await aiSession.prompt(tagsPrompt);
+              results.tags = generatedTags.toLowerCase().split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0);
+            }
+          } catch (error) {
+            console.error('Background tag generation failed:', error);
+          }
+        }
+
+        // Generate summary if missing
+        if (!currentSummary) {
+          try {
+            if (!summarizerSession) await initializeSummarizer();
+            if (summarizerSession) {
+              const summary = await summarizerSession.summarize(selectedText);
+              results.summary = summary.trim();
+            }
+          } catch (error) {
+            console.error('Background summary generation failed:', error);
+          }
+        }
+
+        // Save the solution
+        const solution = {
+          id: Date.now().toString(),
+          text: selectedText,
+          summary: results.summary,
+          url: url,
+          title: results.title || pageTitle || 'Untitled Solution',
+          timestamp: Date.now(),
+          tags: results.tags,
+          notes: notes
+        };
+
+        const result = await chrome.storage.local.get(['solutions']);
+        const solutions = result.solutions || [];
+        solutions.unshift(solution);
+        await chrome.storage.local.set({ solutions });
+
+        // Show notification
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('vite.svg'),
+          title: 'MindStack',
+          message: 'Solution processed and saved successfully!',
+          priority: 2
+        });
+
+      } catch (error) {
+        console.error('Background processing error:', error);
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('vite.svg'),
+          title: 'MindStack',
+          message: 'Failed to process solution in background',
+          priority: 2
+        });
       }
     })();
     return true;

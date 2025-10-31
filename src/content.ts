@@ -272,10 +272,10 @@ class StackOverflowCapture {
           " onmouseover="this.style.borderColor='#757575'" onmouseout="this.style.borderColor='#bdbdbd'"></textarea>
         </div>
 
-        <div style="display: flex; gap: 12px; justify-content: flex-end;">
-          <button id="stackmind-cancel" style="
-            background: #e0e0e0;
-            color: #424242;
+        <div style="display: flex; gap: 12px; justify-content: space-between;">
+          <button id="stackmind-background" style="
+            background: #f5f5f5;
+            color: #616161;
             border: 1px solid #bdbdbd;
             padding: 10px 16px;
             border-radius: 4px;
@@ -283,22 +283,37 @@ class StackOverflowCapture {
             font-size: 13px;
             font-weight: 500;
             transition: background 0.2s;
-          " onmouseover="this.style.background='#bdbdbd'" onmouseout="this.style.background='#e0e0e0'">
-            Cancel
+          " onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='#f5f5f5'" title="Close this panel and get notified when AI processing is done">
+            Continue in Background
           </button>
-          <button id="stackmind-save" style="
-            background: #e0e0e0;
-            color: #212121;
-            border: 1px solid #757575;
-            padding: 10px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: background 0.2s;
-          " onmouseover="this.style.background='#bdbdbd'" onmouseout="this.style.background='#e0e0e0'">
-            Save Solution
-          </button>
+          <div style="display: flex; gap: 12px;">
+            <button id="stackmind-cancel" style="
+              background: #e0e0e0;
+              color: #424242;
+              border: 1px solid #bdbdbd;
+              padding: 10px 16px;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 13px;
+              font-weight: 500;
+              transition: background 0.2s;
+            " onmouseover="this.style.background='#bdbdbd'" onmouseout="this.style.background='#e0e0e0'">
+              Cancel
+            </button>
+            <button id="stackmind-save" style="
+              background: #e0e0e0;
+              color: #212121;
+              border: 1px solid #757575;
+              padding: 10px 16px;
+              border-radius: 4px;
+              cursor: pointer;
+              font-size: 13px;
+              font-weight: 500;
+              transition: background 0.2s;
+            " onmouseover="this.style.background='#bdbdbd'" onmouseout="this.style.background='#e0e0e0'">
+              Save Solution
+            </button>
+          </div>
         </div>
       </div>
       
@@ -320,6 +335,7 @@ class StackOverflowCapture {
     const closeBtn = document.getElementById('stackmind-close-panel');
     const cancelBtn = document.getElementById('stackmind-cancel');
     const saveBtn = document.getElementById('stackmind-save');
+    const backgroundBtn = document.getElementById('stackmind-background');
     const backdrop = document.getElementById('stackmind-backdrop');
     const tagInput = document.getElementById('stackmind-add-tag') as HTMLInputElement;
 
@@ -327,6 +343,7 @@ class StackOverflowCapture {
     cancelBtn?.addEventListener('click', () => this.hideCapturePanel());
     backdrop?.addEventListener('click', () => this.hideCapturePanel());
     saveBtn?.addEventListener('click', () => this.saveSolution());
+    backgroundBtn?.addEventListener('click', () => this.continueInBackground());
     
     // Handle manual tag addition
     tagInput?.addEventListener('keydown', (e) => {
@@ -569,17 +586,44 @@ class StackOverflowCapture {
     }
   }
 
+  private continueInBackground() {
+    // Close the panel
+    this.hideCapturePanel();
+    
+    // Send to background script to continue processing
+    chrome.runtime.sendMessage({
+      action: 'processInBackground',
+      selectedText: this.selectedText,
+      url: window.location.href,
+      pageTitle: document.title,
+      currentTags: this.tags,
+      currentTitle: this.generatedTitle,
+      currentSummary: this.generatedSummary,
+      notes: (document.getElementById('stackmind-notes') as HTMLTextAreaElement)?.value || ''
+    });
+    
+    // Show notification that processing continues
+    this.showNotification('Processing solution in background...', 'info');
+  }
+
   private showSuccessMessage() {
+    this.showNotification('Solution captured successfully', 'success');
+  }
+
+  private showNotification(message: string, type: 'success' | 'info' = 'success') {
     const successMsg = document.createElement('div');
+    const bgColor = type === 'success' ? '#f5f5f5' : '#e3f2fd';
+    const borderColor = type === 'success' ? '#e0e0e0' : '#90caf9';
+    
     successMsg.innerHTML = `
       <div style="
         position: fixed;
         top: 20px;
         right: 20px;
-        background: #f5f5f5;
+        background: ${bgColor};
         color: #212121;
         padding: 12px 18px;
-        border: 1px solid #e0e0e0;
+        border: 1px solid ${borderColor};
         border-radius: 4px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         z-index: 10002;
@@ -588,7 +632,7 @@ class StackOverflowCapture {
         font-weight: 500;
         animation: slideIn 0.3s ease;
       ">
-        Solution captured successfully
+        ${message}
       </div>
       <style>
         @keyframes slideIn {
