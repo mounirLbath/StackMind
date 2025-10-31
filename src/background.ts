@@ -1,15 +1,59 @@
 // Background service worker for MindStack extension
 // Handles extension lifecycle and message passing
 
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('StackMind: Extension installed');
+// Global AI session for tag generation
+let aiSession: any = null;
+let isInitializingSession = false;
+
+// Initialize AI session on startup
+async function initializeAISession() {
+  if (aiSession || isInitializingSession) return;
   
+  isInitializingSession = true;
+  
+  try {
+    // @ts-ignore - Chrome Prompt API is experimental
+    const availability = await LanguageModel.availability();
+    
+    if (availability === 'unavailable') {
+      isInitializingSession = false;
+      return;
+    }
+
+    // @ts-ignore
+    aiSession = await LanguageModel.create({
+      monitor(m: any) {
+        m.addEventListener('downloadprogress', (e: any) => {
+          console.log(`AI model: ${Math.round(e.loaded * 100)}%`);
+        });
+      },
+    });
+  } catch (error) {
+    console.error('AI session init failed:', error);
+    aiSession = null;
+  } finally {
+    isInitializingSession = false;
+  }
+}
+
+// Initialize on extension load (when service worker starts)
+initializeAISession();
+
+// Initialize when Chrome browser starts
+chrome.runtime.onStartup.addListener(() => {
+  initializeAISession();
+});
+
+chrome.runtime.onInstalled.addListener(() => {
   // Initialize storage if needed
   chrome.storage.local.get(['solutions'], (result) => {
     if (!result.solutions) {
       chrome.storage.local.set({ solutions: [] });
     }
   });
+  
+  // Initialize AI session
+  initializeAISession();
 });
 
 // Listen for messages from content scripts or popup
@@ -56,25 +100,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'generateTags') {
     (async () => {
       try {
-        // @ts-ignore - Chrome Prompt API is experimental
-        const availability = await LanguageModel.availability();
+        // Initialize session if not already done
+        if (!aiSession && !isInitializingSession) {
+          await initializeAISession();
+        }
         
-        if (availability === 'unavailable') {
+        // Wait for session to be ready if it's initializing
+        let waitCount = 0;
+        while (isInitializingSession && waitCount < 100) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          waitCount++;
+        }
+        
+        if (isInitializingSession) {
           sendResponse({ 
             success: false, 
-            error: 'AI not available. Add tags manually below.' 
+            error: 'AI initialization timeout. Try again.' 
           });
           return;
         }
-
-        // @ts-ignore
-        const session = await LanguageModel.create({
-          monitor(m: any) {
-            m.addEventListener('downloadprogress', (e: any) => {
-              console.log(`Downloaded ${e.loaded * 100}%`);
-            });
-          },
-        });
+        
+        if (!aiSession) {
+          sendResponse({ 
+            success: false, 
+            error: 'AI not available. Enable Chrome Prompt API.' 
+          });
+          return;
+        }
 
         const promptText = `You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
 
@@ -86,23 +138,24 @@ Solution: ${message.text}...
 
 Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
         
-        const result = await session.prompt(promptText);
-        
-        console.log('Result:', result);
+        const result = await aiSession.prompt(promptText);
         
         // Parse the tags
         const tags = result.split(',')
           .map((tag: string) => tag.trim().toLowerCase())
           .filter((tag: string) => tag.length > 0);
         
-        session.destroy();
-        
         sendResponse({ success: true, tags });
       } catch (error) {
-        console.error('Error generating tags:', error);
+        console.error('Tag generation error:', error);
+        
+        // Reset session on error and try to reinitialize
+        aiSession = null;
+        initializeAISession();
+        
         sendResponse({ 
           success: false, 
-          error: 'Failed to generate tags. Add them manually below.' 
+          error: `Failed: ${(error as Error).message}` 
         });
       }
     })();

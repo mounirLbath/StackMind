@@ -304,7 +304,6 @@ class StackOverflowCapture {
         text: this.selectedText.substring(0, 500)
       }, (response) => {
         if (chrome.runtime.lastError) {
-          console.error('Error generating tags:', chrome.runtime.lastError);
           if (statusEl) {
             statusEl.textContent = 'Failed to generate tags. Add them manually below.';
             setTimeout(() => {
