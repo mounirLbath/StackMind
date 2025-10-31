@@ -1,5 +1,5 @@
-// Content script
-// Allows users to select and capture solution text
+// Content script - Glassmorphism redesign
+// Allows users to select and capture solution text with beautiful UI
 
 class SolutionCapture {
   private floatingButton: HTMLDivElement | null = null;
@@ -12,10 +12,8 @@ class SolutionCapture {
   }
 
   private init() {
-    // Listen for text selection
     document.addEventListener('mouseup', this.handleTextSelection.bind(this));
     
-    // Listen for messages from popup and background
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.action === 'getPageInfo') {
         sendResponse({
@@ -31,105 +29,209 @@ class SolutionCapture {
       }
       return true;
     });
+
+    // Inject styles
+    this.injectStyles();
+
+    // Check if extension context is valid
+    this.checkExtensionContext();
+  }
+
+  private checkExtensionContext() {
+    try {
+      // Try to access chrome.runtime to check if context is valid
+      if (chrome.runtime?.id) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('MindStack: Extension context invalidated. Please refresh the page.');
+      this.showReloadNotification();
+      return false;
+    }
+    return true;
+  }
+
+  private showReloadNotification() {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      backdrop-filter: blur(16px) saturate(180%);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-left: 4px solid #f59e0b;
+      padding: 16px 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+      z-index: 10003;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      max-width: 400px;
+      animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+    
+    notification.innerHTML = `
+      <div style="display: flex; align-items: center;">
+        <div style="flex: 1;">
+          <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a;">Extension Updated</div>
+          <div style="font-size: 13px; color: #4a4a4a; line-height: 1.4;">Please refresh this page to continue</div>
+          <div style="font-size: 11px; color: #737373; margin-top: 4px;">Click to reload</div>
+        </div>
+      </div>
+    `;
+    
+    notification.onmouseenter = () => {
+      notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9))';
+      notification.style.transform = 'translateY(-2px)';
+      notification.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1)';
+    };
+    notification.onmouseleave = () => {
+      notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.85))';
+      notification.style.transform = 'translateY(0)';
+      notification.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)';
+    };
+    
+    notification.onclick = () => {
+      window.location.reload();
+    };
+    
+    document.body.appendChild(notification);
+  }
+
+  private injectStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes slideInFromTop {
+        from {
+          transform: translateY(-12px);
+          opacity: 0;
+        }
+        to {
+          transform: translateY(0);
+          opacity: 1;
+        }
+      }
+
+      @keyframes slideOutToTop {
+        from {
+          transform: translateY(0);
+          opacity: 1;
+        }
+        to {
+          transform: translateY(-12px);
+          opacity: 0;
+        }
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      .glass {
+        backdrop-filter: blur(12px);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 12px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+      }
+      
+      .gradient-light {
+        background: radial-gradient(circle at 20% 10%, #e8f0fe 0%, #ffffff 35%, #f9fbff 100%);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          animation-duration: 0.01ms !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   private showPageNotification(title: string) {
     const notification = document.createElement('div');
     notification.style.cssText = `
       position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #ffffff;
-      color: #212121;
+      top: 24px;
+      right: 24px;
+      backdrop-filter: blur(16px) saturate(180%);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-left: 4px solid #10b981;
       padding: 16px 20px;
-      border: 1px solid #4caf50;
-      border-left: 4px solid #4caf50;
-      border-radius: 4px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
       z-index: 10003;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 14px;
       font-weight: 500;
-      max-width: 350px;
-      animation: slideInRight 0.3s ease;
+      max-width: 400px;
+      animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     `;
     
     notification.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="flex-shrink: 0; width: 24px; height: 24px; background: #4caf50; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">✓</div>
+      <div style="display: flex; align-items: start; gap: 12px;">
+        <div style="flex-shrink: 0; margin-top: 2px;">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="10" cy="10" r="10" fill="#10b981"/>
+            <path d="M6 10L8.5 12.5L14 7" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
         <div style="flex: 1;">
-          <div style="font-weight: 600; margin-bottom: 2px;">MindStack</div>
-          <div style="font-size: 13px; color: #616161;">${this.escapeHtml(title)}</div>
-          <div style="font-size: 11px; color: #9e9e9e; margin-top: 4px;">Click to view</div>
+          <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a;">Solution Saved</div>
+          <div style="font-size: 13px; color: #4a4a4a; line-height: 1.4;">${this.escapeHtml(title)}</div>
+          <div style="font-size: 11px; color: #737373; margin-top: 4px;">Click to view in MindStack</div>
         </div>
       </div>
     `;
     
-    // Add hover effect
     notification.onmouseenter = () => {
-      notification.style.background = '#f0f9f4';
-      notification.style.transform = 'scale(1.02)';
+      notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9))';
+      notification.style.transform = 'translateY(-2px)';
+      notification.style.boxShadow = '0 12px 40px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1)';
     };
     notification.onmouseleave = () => {
-      notification.style.background = '#ffffff';
-      notification.style.transform = 'scale(1)';
+      notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.85))';
+      notification.style.transform = 'translateY(0)';
+      notification.style.boxShadow = '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)';
     };
     
-    // Open extension popup window when clicked
     notification.onclick = () => {
-      chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
-      notification.remove();
-      style.remove();
+      try {
+        if (!this.checkExtensionContext()) return;
+        chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
+      } catch (e) {
+        console.warn('MindStack: Cannot open extension window - context invalidated');
+      }
+      notification.style.animation = 'slideOutToTop 0.14s ease-out';
+      setTimeout(() => notification.remove(), 140);
     };
     
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes slideInRight {
-        from {
-          transform: translateX(400px);
-          opacity: 0;
-        }
-        to {
-          transform: translateX(0);
-          opacity: 1;
-        }
-      }
-      @keyframes slideOutRight {
-        from {
-          transform: translateX(0);
-          opacity: 1;
-        }
-        to {
-          transform: translateX(400px);
-          opacity: 0;
-        }
-      }
-    `;
-    
-    document.head.appendChild(style);
     document.body.appendChild(notification);
     
-    // Auto-dismiss after 6 seconds
-    const dismissTimeout = setTimeout(() => {
+    setTimeout(() => {
       if (document.body.contains(notification)) {
-        notification.style.animation = 'slideOutRight 0.3s ease';
-        setTimeout(() => {
-          notification.remove();
-          style.remove();
-        }, 300);
+        notification.style.animation = 'slideOutToTop 0.14s ease-out';
+        setTimeout(() => notification.remove(), 140);
       }
     }, 6000);
-    
-    // Clear timeout if clicked
-    notification.addEventListener('click', () => {
-      clearTimeout(dismissTimeout);
-    });
   }
 
   private handleTextSelection(event: MouseEvent) {
-    // Ignore clicks on our own UI elements
     const target = event.target as HTMLElement;
     if (target.closest('#stackmind-capture-btn') || target.closest('#stackmind-capture-panel')) {
       return;
@@ -147,29 +249,34 @@ class SolutionCapture {
   }
 
   private showFloatingButton(x: number, y: number) {
-    // Remove existing button if any
     this.hideFloatingButton();
 
-    // Create floating button
     this.floatingButton = document.createElement('div');
     this.floatingButton.id = 'stackmind-capture-btn';
     this.floatingButton.innerHTML = `
       <button style="
-        background: #e0e0e0;
-        color: #424242;
-        border: 1px solid #bdbdbd;
-        padding: 8px 14px;
-        border-radius: 4px;
+        backdrop-filter: blur(16px) saturate(180%);
+        background: linear-gradient(135deg, #4285F4 0%, #3367D6 100%);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        padding: 10px 16px;
+        border-radius: 10px;
         cursor: pointer;
         font-size: 13px;
-        font-weight: 500;
-        box-shadow: none;
-        display: inline-block;
-        transition: background 0.2s;
+        font-weight: 600;
+        box-shadow: 0 8px 24px rgba(66, 133, 244, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
         z-index: 10000;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       " 
-      onmouseover="this.style.background='#bdbdbd';"
-      onmouseout="this.style.background='#e0e0e0';">
+      onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(66, 133, 244, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2)'; this.style.background='linear-gradient(135deg, #3367D6 0%, #2557C7 100%)';"
+      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(66, 133, 244, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15)'; this.style.background='linear-gradient(135deg, #4285F4 0%, #3367D6 100%)';">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 2v12M2 8h12" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
         Capture Solution
       </button>
     `;
@@ -196,156 +303,144 @@ class SolutionCapture {
   }
 
   private startBackgroundCapture() {
-    // Hide the floating button
     this.hideFloatingButton();
     
-    // Generate a task ID
+    if (!this.checkExtensionContext()) {
+      this.showReloadNotification();
+      return;
+    }
+
     this.currentTaskId = Date.now().toString();
     
-    // Send to background script to start processing
-    chrome.runtime.sendMessage({
-      action: 'processInBackground',
-      selectedText: this.selectedText,
-      url: window.location.href,
-      pageTitle: document.title,
-      currentTags: [],
-      currentTitle: '',
-      currentSummary: '',
-      isFormatted: false,
-      notes: '',
-      taskId: this.currentTaskId
-    });
-    
-    // Show clickable notification that opens the capture panel
-    this.showClickableNotification('Processing solution...', 'Click to view and edit');
+    try {
+      chrome.runtime.sendMessage({
+        action: 'processInBackground',
+        selectedText: this.selectedText,
+        url: window.location.href,
+        pageTitle: document.title,
+        currentTags: [],
+        currentTitle: '',
+        currentSummary: '',
+        isFormatted: false,
+        notes: '',
+        taskId: this.currentTaskId
+      });
+      
+      this.showClickableNotification('Processing solution...');
+    } catch (e) {
+      console.error('MindStack: Failed to start capture:', e);
+      this.showReloadNotification();
+    }
   }
 
-  private showClickableNotification(title: string, subtitle: string) {
+  private showClickableNotification(title: string) {
     const notification = document.createElement('div');
     notification.style.cssText = `
       position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #ffffff;
-      color: #212121;
+      top: 24px;
+      right: 24px;
+      backdrop-filter: blur(16px) saturate(180%);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.85));
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-left: 4px solid #4285F4;
       padding: 16px 20px;
-      border: 1px solid #2196f3;
-      border-left: 4px solid #2196f3;
-      border-radius: 4px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(66, 133, 244, 0.2), 0 2px 8px rgba(0, 0, 0, 0.08);
       z-index: 10003;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 14px;
       font-weight: 500;
-      max-width: 350px;
-      animation: slideInRight 0.3s ease;
+      max-width: 400px;
+      animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     `;
     
     notification.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <div style="flex-shrink: 0; width: 24px; height: 24px; background: #2196f3; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold;">
+      <div style="display: flex; align-items: start; gap: 12px;">
+        <div style="flex-shrink: 0; margin-top: 2px;">
           <div style="
-            width: 16px;
-            height: 16px;
-            border: 2px solid white;
+            width: 18px;
+            height: 18px;
+            border: 2px solid #4285F4;
             border-top-color: transparent;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
           "></div>
         </div>
         <div style="flex: 1;">
-          <div style="font-weight: 600; margin-bottom: 2px;">MindStack</div>
-          <div style="font-size: 13px; color: #616161;">${this.escapeHtml(title)}</div>
-          <div style="font-size: 11px; color: #9e9e9e; margin-top: 4px;">${this.escapeHtml(subtitle)}</div>
+          <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a;">Processing Solution</div>
+          <div style="font-size: 13px; color: #4a4a4a;">${this.escapeHtml(title)}</div>
+          <div style="font-size: 11px; color: #737373; margin-top: 4px;">Click to open in MindStack</div>
         </div>
       </div>
     `;
     
-    // Add hover effect
     notification.onmouseenter = () => {
-      notification.style.background = '#f5f5f5';
-      notification.style.transform = 'scale(1.02)';
+      notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9))';
+      notification.style.transform = 'translateY(-2px)';
+      notification.style.boxShadow = '0 12px 40px rgba(66, 133, 244, 0.25), 0 4px 12px rgba(0, 0, 0, 0.1)';
     };
     notification.onmouseleave = () => {
-      notification.style.background = '#ffffff';
-      notification.style.transform = 'scale(1)';
+      notification.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.85))';
+      notification.style.transform = 'translateY(0)';
+      notification.style.boxShadow = '0 8px 32px rgba(66, 133, 244, 0.2), 0 2px 8px rgba(0, 0, 0, 0.08)';
     };
     
-    // Open capture panel when clicked
-    const taskId = this.currentTaskId;
     notification.onclick = () => {
-      if (taskId) {
-        this.showCapturePanel(taskId);
+      try {
+        if (!this.checkExtensionContext()) return;
+        chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
+        notification.style.animation = 'slideOutToTop 0.14s ease-out';
+        setTimeout(() => notification.remove(), 140);
+      } catch (e) {
+        console.error('MindStack: Failed to open extension window:', e);
+        this.showReloadNotification();
       }
-      notification.remove();
-      style.remove();
     };
     
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes slideInRight {
-        from {
-          transform: translateX(400px);
-          opacity: 0;
-        }
-        to {
-          transform: translateX(0);
-          opacity: 1;
-        }
-      }
-      @keyframes slideOutRight {
-        from {
-          transform: translateX(0);
-          opacity: 1;
-        }
-        to {
-          transform: translateX(400px);
-          opacity: 0;
-        }
-      }
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-    `;
-    
-    document.head.appendChild(style);
     document.body.appendChild(notification);
     
-    // Auto-dismiss after 8 seconds
     setTimeout(() => {
       if (document.body.contains(notification)) {
-        notification.style.animation = 'slideOutRight 0.3s ease';
-        setTimeout(() => {
-          notification.remove();
-          style.remove();
-        }, 300);
+        notification.style.animation = 'slideOutToTop 0.14s ease-out';
+        setTimeout(() => notification.remove(), 140);
       }
     }, 8000);
   }
 
   private async showCapturePanel(taskId: string) {
-    // If panel already exists, don't create another
     if (this.capturePanel) {
       return;
     }
 
-    // Get current task status from background
-    chrome.runtime.sendMessage({ action: 'getTaskStatus', taskId }, (response) => {
-      if (!response) return;
+    if (!this.checkExtensionContext()) {
+      this.showReloadNotification();
+      return;
+    }
 
-      const task = response.task;
-      if (!task) return;
+    try {
+      chrome.runtime.sendMessage({ action: 'getTaskStatus', taskId }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('MindStack: Context invalidated while fetching task status');
+          this.showReloadNotification();
+          return;
+        }
 
-      this.renderCapturePanel(task);
-    });
+        if (!response) return;
+
+        const task = response.task;
+        if (!task) return;
+
+        this.renderCapturePanel(task);
+      });
+    } catch (e) {
+      console.error('MindStack: Failed to show capture panel:', e);
+      this.showReloadNotification();
+    }
   }
 
   private renderCapturePanel(task: any) {
-    // Create capture panel
     this.capturePanel = document.createElement('div');
     this.capturePanel.id = 'stackmind-capture-panel';
     this.capturePanel.innerHTML = `
@@ -354,115 +449,138 @@ class SolutionCapture {
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        background: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 4px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-        padding: 24px;
-        max-width: 600px;
+        backdrop-filter: blur(20px) saturate(180%);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.88));
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(0, 0, 0, 0.1);
+        padding: 28px;
+        max-width: 620px;
         width: 90%;
         max-height: 85vh;
         overflow-y: auto;
         z-index: 10001;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        animation: slideInFromTop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
       ">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <h3 style="margin: 0; font-size: 18px; color: #212121; font-weight: 600;">Solution Processing</h3>
-          <button id="stackmind-close-panel" style="
-            background: none;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            color: #757575;
-            line-height: 1;
-            padding: 0;
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 4px;
-          " onmouseover="this.style.background='#e0e0e0'" onmouseout="this.style.background='none'">×</button>
-        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+          <h3 style="margin: 0; font-size: 20px; color: #1a1a1a; font-weight: 600; letter-spacing: -0.3px;">
+            Solution Processing
+          </h3>
+            <button id="stackmind-close-panel" style="
+              backdrop-filter: blur(12px);
+              background: rgba(255, 255, 255, 0.1);
+              border: 1px solid rgba(255, 255, 255, 0.2);
+              font-size: 20px;
+              cursor: pointer;
+              color: rgba(0, 0, 0, 0.6);
+              line-height: 1;
+              padding: 0;
+              width: 32px;
+              height: 32px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border-radius: 8px;
+              transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            " onmouseover="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.transform='scale(1.05)'; this.style.color='#1a1a1a';" onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='scale(1)'; this.style.color='rgba(0, 0, 0, 0.6)';">×</button>
+          </div>
         
-        <!-- Progress Section -->
-        <div style="margin-bottom: 20px; padding: 16px; background: #f5f5f5; border-radius: 4px;">
-          <div style="font-weight: 600; margin-bottom: 12px; color: #424242; font-size: 14px;">Processing Status:</div>
-          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span id="progress-format" style="font-size: 16px;">${task.progress.format ? '✓' : '○'}</span>
-              <span style="font-size: 13px; color: #616161;">Format</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span id="progress-title" style="font-size: 16px;">${task.progress.title ? '✓' : '○'}</span>
-              <span style="font-size: 13px; color: #616161;">Title</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span id="progress-tags" style="font-size: 16px;">${task.progress.tags ? '✓' : '○'}</span>
-              <span style="font-size: 13px; color: #616161;">Tags</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span id="progress-summary" style="font-size: 16px;">${task.progress.summary ? '✓' : '○'}</span>
-              <span style="font-size: 13px; color: #616161;">Summary</span>
+        <div style="
+          margin-bottom: 24px;
+          padding: 16px;
+          backdrop-filter: blur(12px);
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 12px;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+        ">
+          <div style="font-weight: 600; margin-bottom: 12px; color: rgba(0, 0, 0, 0.7); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;">Processing Status</div>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="progress-format" style="font-size: 16px; font-weight: 600; color: ${task.progress.format ? '#10b981' : 'rgba(0, 0, 0, 0.3)'};">${task.progress.format ? '✓' : '○'}</span>
+                <span style="font-size: 13px; color: rgba(0, 0, 0, 0.8);">Format</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="progress-title" style="font-size: 16px; font-weight: 600; color: ${task.progress.title ? '#10b981' : 'rgba(0, 0, 0, 0.3)'};">${task.progress.title ? '✓' : '○'}</span>
+                <span style="font-size: 13px; color: rgba(0, 0, 0, 0.8);">Title</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="progress-tags" style="font-size: 16px; font-weight: 600; color: ${task.progress.tags ? '#10b981' : 'rgba(0, 0, 0, 0.3)'};">${task.progress.tags ? '✓' : '○'}</span>
+                <span style="font-size: 13px; color: rgba(0, 0, 0, 0.8);">Tags</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span id="progress-summary" style="font-size: 16px; font-weight: 600; color: ${task.progress.summary ? '#10b981' : 'rgba(0, 0, 0, 0.3)'};">${task.progress.summary ? '✓' : '○'}</span>
+                <span style="font-size: 13px; color: rgba(0, 0, 0, 0.8);">Summary</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div style="margin-bottom: 16px;">
-          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #424242; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-            Page:
-          </label>
-          <div style="font-size: 14px; color: #616161;">${this.escapeHtml(task.pageTitle)}</div>
-        </div>
+          <div style="margin-bottom: 20px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: rgba(0, 0, 0, 0.7); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;">
+              Page
+            </label>
+            <div style="font-size: 14px; color: rgba(0, 0, 0, 0.9);">${this.escapeHtml(task.pageTitle)}</div>
+          </div>
 
-        <div style="margin-bottom: 20px;">
-          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #424242; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-            Add Notes (optional):
-          </label>
-          <textarea id="stackmind-notes" placeholder="Add context, notes, or why this solution works..." style="
-            width: 100%;
-            min-height: 100px;
-            border: 1px solid #bdbdbd;
-            border-radius: 4px;
-            padding: 12px;
-            font-size: 14px;
-            font-family: inherit;
-            resize: vertical;
-            box-sizing: border-box;
-          " onmouseover="this.style.borderColor='#757575'" onmouseout="this.style.borderColor='#bdbdbd'"></textarea>
-        </div>
+          <div style="margin-bottom: 24px;">
+            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: rgba(0, 0, 0, 0.7); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px;">
+              Notes (Optional)
+            </label>
+            <textarea id="stackmind-notes" placeholder="Add context, notes, or why this solution works..." style="
+              width: 100%;
+              min-height: 110px;
+              backdrop-filter: blur(12px);
+              background: rgba(255, 255, 255, 0.1);
+              border: 1px solid rgba(255, 255, 255, 0.2);
+              border-radius: 8px;
+              padding: 12px;
+              font-size: 14px;
+              font-family: inherit;
+              resize: vertical;
+              box-sizing: border-box;
+              outline: none;
+              transition: all 0.2s;
+              color: #1a1a1a;
+              line-height: 1.5;
+            " onfocus="this.style.borderColor='rgba(66, 133, 244, 0.6)'; this.style.boxShadow='0 0 0 1px rgba(66, 133, 244, 0.4)'" onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.boxShadow='none'"></textarea>
+          </div>
 
-        <div style="display: flex; gap: 12px; justify-content: flex-end;">
-          <button id="stackmind-close-btn" style="
-            background: #e0e0e0;
-            color: #424242;
-            border: 1px solid #bdbdbd;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: background 0.2s;
-          " onmouseover="this.style.background='#bdbdbd'" onmouseout="this.style.background='#e0e0e0'">
-            Close
-          </button>
-          <button id="stackmind-save-notes" style="
-            background: #2196f3;
-            color: white;
-            border: 1px solid #2196f3;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: background 0.2s;
-          " onmouseover="this.style.background='#1976d2'" onmouseout="this.style.background='#2196f3'">
-            Save & Close
-          </button>
+          <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <button id="stackmind-close-btn" style="
+              backdrop-filter: blur(12px);
+              background: rgba(255, 255, 255, 0.1);
+              color: rgba(0, 0, 0, 0.8);
+              border: 1px solid rgba(255, 255, 255, 0.2);
+              padding: 8px 16px;
+              border-radius: 8px;
+              cursor: pointer;
+              font-size: 14px;
+              font-weight: 500;
+              transition: all 0.2s;
+              box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+            " onmouseover="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.transform='scale(1.02)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='scale(1)';">
+              Close
+            </button>
+            <button id="stackmind-save-notes" style="
+              backdrop-filter: blur(12px);
+              background: rgba(255, 255, 255, 0.1);
+              color: rgba(0, 0, 0, 0.8);
+              border: 1px solid rgba(255, 255, 255, 0.2);
+              padding: 8px 16px;
+              border-radius: 8px;
+              cursor: pointer;
+              font-size: 14px;
+              font-weight: 500;
+              transition: all 0.2s;
+              box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+            " onmouseover="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.transform='scale(1.02)';" onmouseout="this.style.background='rgba(255, 255, 255, 0.1)'; this.style.transform='scale(1)';">
+              Save & Close
+            </button>
+          </div>
         </div>
       </div>
       
-      <!-- Backdrop -->
       <div style="
         position: fixed;
         top: 0;
@@ -470,16 +588,16 @@ class SolutionCapture {
         right: 0;
         bottom: 0;
         background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(6px);
         z-index: 10000;
+        animation: fadeIn 0.18s ease-out;
       " id="stackmind-backdrop"></div>
     `;
 
     document.body.appendChild(this.capturePanel);
 
-    // Listen for background task updates
-    const updateListener = (message: any, _sender: any, _sendResponse: any) => {
+    const updateListener = (message: any) => {
       if (message.action === 'backgroundTaskUpdate' && message.taskId === task.id) {
-        // Update progress indicators
         const formatEl = document.getElementById('progress-format');
         const titleEl = document.getElementById('progress-title');
         const tagsEl = document.getElementById('progress-tags');
@@ -487,47 +605,35 @@ class SolutionCapture {
 
         if (formatEl) {
           formatEl.textContent = message.progress.format ? '✓' : '○';
-          formatEl.style.color = message.progress.format ? '#4caf50' : '#9e9e9e';
+          formatEl.style.color = message.progress.format ? '#10b981' : 'rgba(0, 0, 0, 0.3)';
         }
         if (titleEl) {
           titleEl.textContent = message.progress.title ? '✓' : '○';
-          titleEl.style.color = message.progress.title ? '#4caf50' : '#9e9e9e';
+          titleEl.style.color = message.progress.title ? '#10b981' : 'rgba(0, 0, 0, 0.3)';
         }
         if (tagsEl) {
           tagsEl.textContent = message.progress.tags ? '✓' : '○';
-          tagsEl.style.color = message.progress.tags ? '#4caf50' : '#9e9e9e';
+          tagsEl.style.color = message.progress.tags ? '#10b981' : 'rgba(0, 0, 0, 0.3)';
         }
         if (summaryEl) {
           summaryEl.textContent = message.progress.summary ? '✓' : '○';
-          summaryEl.style.color = message.progress.summary ? '#4caf50' : '#9e9e9e';
+          summaryEl.style.color = message.progress.summary ? '#10b981' : 'rgba(0, 0, 0, 0.3)';
         }
       }
 
       if (message.action === 'backgroundTaskComplete' && message.taskId === task.id) {
-        // Mark all as complete
         const formatEl = document.getElementById('progress-format');
         const titleEl = document.getElementById('progress-title');
         const tagsEl = document.getElementById('progress-tags');
         const summaryEl = document.getElementById('progress-summary');
 
-        if (formatEl) {
-          formatEl.textContent = '✓';
-          formatEl.style.color = '#4caf50';
-        }
-        if (titleEl) {
-          titleEl.textContent = '✓';
-          titleEl.style.color = '#4caf50';
-        }
-        if (tagsEl) {
-          tagsEl.textContent = '✓';
-          tagsEl.style.color = '#4caf50';
-        }
-        if (summaryEl) {
-          summaryEl.textContent = '✓';
-          summaryEl.style.color = '#4caf50';
-        }
+        [formatEl, titleEl, tagsEl, summaryEl].forEach(el => {
+          if (el) {
+            el.textContent = '✓';
+            el.style.color = '#10b981';
+          }
+        });
         
-        // Auto-close panel when complete
         setTimeout(() => {
           this.hideCapturePanel();
           chrome.runtime.onMessage.removeListener(updateListener);
@@ -537,7 +643,6 @@ class SolutionCapture {
 
     chrome.runtime.onMessage.addListener(updateListener);
 
-    // Add event listeners
     const closeBtn = document.getElementById('stackmind-close-panel');
     const closeBtnBottom = document.getElementById('stackmind-close-btn');
     const saveBtn = document.getElementById('stackmind-save-notes');
@@ -551,12 +656,17 @@ class SolutionCapture {
       const notesTextarea = document.getElementById('stackmind-notes') as HTMLTextAreaElement;
       const notes = notesTextarea?.value || '';
       
-      // Send notes to background to update the solution
-      chrome.runtime.sendMessage({
-        action: 'updateTaskNotes',
-        taskId: task.id,
-        notes: notes
-      });
+      try {
+        if (this.checkExtensionContext()) {
+          chrome.runtime.sendMessage({
+            action: 'updateTaskNotes',
+            taskId: task.id,
+            notes: notes
+          });
+        }
+      } catch (e) {
+        console.warn('MindStack: Failed to save notes - context invalidated');
+      }
       
       this.hideCapturePanel();
     });
@@ -576,5 +686,4 @@ class SolutionCapture {
   }
 }
 
-// Initialize the capture functionality on all pages
 new SolutionCapture();

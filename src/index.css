@@ -4,3 +4,109 @@ body {
   margin: 0;
 }
 
+/* Glassmorphism Utilities */
+@layer utilities {
+  .glass {
+    @apply backdrop-blur-md bg-white/10 dark:bg-white/10 border border-white/20 rounded-xl;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  }
+
+  .shadow-soft {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  }
+
+  .shadow-glow {
+    box-shadow: 0 8px 24px rgba(66, 133, 244, 0.18);
+  }
+
+  .hairline {
+    @apply border border-white/20 dark:border-white/15;
+  }
+
+  .card {
+    @apply backdrop-blur-md bg-white/10 dark:bg-white/10 border border-white/20 rounded-xl p-4 md:p-6;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-[6px] bg-white/14 dark:bg-white/14 border border-white/20 text-xs transition-transform hover:-translate-y-[1px];
+  }
+
+  .toolbar {
+    @apply backdrop-blur-md bg-white/10 dark:bg-white/10 border border-white/20 rounded-xl flex items-center justify-between gap-3 px-3 py-2;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  }
+
+  .muted {
+    @apply text-black/60 dark:text-white;
+  }
+
+  /* Gradient backgrounds */
+  .gradient-light {
+    background: radial-gradient(circle at 20% 10%, #e8f0fe 0%, #ffffff 35%, #f9fbff 100%);
+  }
+
+  .gradient-dark {
+    background: radial-gradient(circle at 80% 10%, #0b1220 0%, #0f1424 35%, #0a0f1e 100%);
+  }
+}
+
+/* Custom Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+  background-clip: content-box;
+}
+
+/* Light theme scrollbar */
+.gradient-light ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.gradient-light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  background-clip: content-box;
+}
+
+.gradient-light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+  background-clip: content-box;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05);
+}
+
+.gradient-light * {
+  scrollbar-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.05);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
