@@ -502,12 +502,12 @@ function App() {
         >
           <Card animate className="text-center max-w-md">
             <h2 className="text-2xl font-semibold text-black/90 dark:text-white mb-2">No solutions yet</h2>
-            <p className="text-sm muted mb-6">Visit Stack Overflow and select text to capture solutions.</p>
+            <p className="text-sm muted mb-6">Visit any webpage and select text of the solution to your question to capture it.</p>
             <div className="glass p-4 rounded-lg text-left">
               <h3 className="text-sm font-semibold text-black/90 dark:text-white mb-3">How to use:</h3>
               <ol className="text-sm muted space-y-2 ml-4 list-decimal">
               <li>Go to any page</li>
-              <li>Select the text of the solution to your questio</li>
+              <li>Select the text of the solution to your question</li>
                 <li>Click "Capture Solution"</li>
               <li>Your solution will be saved here!</li>
             </ol>

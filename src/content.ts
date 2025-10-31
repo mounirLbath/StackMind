@@ -255,16 +255,16 @@ class SolutionCapture {
     this.floatingButton.id = 'stackmind-capture-btn';
     this.floatingButton.innerHTML = `
       <button style="
-        backdrop-filter: blur(16px) saturate(180%);
-        background: linear-gradient(135deg, #4285F4 0%, #3367D6 100%);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(12px);
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         padding: 10px 16px;
         border-radius: 10px;
         cursor: pointer;
         font-size: 13px;
         font-weight: 600;
-        box-shadow: 0 8px 24px rgba(66, 133, 244, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15);
+        color: rgba(0, 0, 0, 0.8);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -272,10 +272,10 @@ class SolutionCapture {
         z-index: 10000;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       " 
-      onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 12px 32px rgba(66, 133, 244, 0.4), 0 4px 12px rgba(0, 0, 0, 0.2)'; this.style.background='linear-gradient(135deg, #3367D6 0%, #2557C7 100%)';"
-      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 8px 24px rgba(66, 133, 244, 0.35), 0 2px 8px rgba(0, 0, 0, 0.15)'; this.style.background='linear-gradient(135deg, #4285F4 0%, #3367D6 100%)';">
+      onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 8px 24px rgba(0, 0, 0, 0.15)'; this.style.background='rgba(255, 255, 255, 0.2)';"
+      onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 16px rgba(0, 0, 0, 0.1)'; this.style.background='rgba(255, 255, 255, 0.1)';">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 2v12M2 8h12" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
         </svg>
         Capture Solution
       </button>
