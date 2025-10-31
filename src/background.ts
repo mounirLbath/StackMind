@@ -603,7 +603,7 @@ Generate title:`;
         // Update notes in the task
         task.notes = taskNotes;
         
-        notifyPopup('backgroundTaskReview', { pageTitle: task.pageTitle, taskId });
+        notifyPopup('backgroundTaskReview', { pageTitle: task.pageTitle, taskId: taskId });
         
         // Task stays in review state - user must manually approve/reject
         // Don't auto-remove or auto-save

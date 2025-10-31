@@ -102,13 +102,13 @@ function App() {
     }
   };
 
-  const loadBackgroundTasks = () => {
+  const loadBackgroundTasks = (autoExpandTaskId?: string) => {
     chrome.runtime.sendMessage({ action: 'getBackgroundTasks' }, (response) => {
       if (response?.tasks) {
         setBackgroundTasks(response.tasks);
-        // Auto-expand first task if none expanded
-        if (response.tasks.length > 0 && !expandedTaskId) {
-          setExpandedTaskId(response.tasks[0].id);
+        // Auto-expand specific task if provided (from notification click)
+        if (autoExpandTaskId) {
+          setExpandedTaskId(autoExpandTaskId);
         }
         // Load notes from tasks, but preserve existing local notes
         setTaskNotes(prevNotes => {
@@ -541,9 +541,46 @@ function App() {
                           {task.status === 'review' && task.generatedData ? (
                             // Review Mode - EDITABLE
                             <>
-                              <div className="glass p-4 space-y-3">
+                              <div className="glass p-4 space-y-4">
                                 <div className="text-sm font-semibold text-green-600 dark:text-green-400 mb-2">
                                   ✓ Processing Complete - Review & Edit
+                                </div>
+
+                                {/* Full Text Content */}
+                                <div>
+                                  <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                                    Solution Content
+                                  </label>
+                                  <div className="glass p-4 max-h-64 overflow-y-auto">
+                                    <pre className="text-xs text-black/80 dark:text-white/85 whitespace-pre-wrap font-mono">
+                                      {editedTaskData[task.id]?.text ?? task.generatedData.text}
+                                    </pre>
+                                  </div>
+                                </div>
+
+                                {/* Markdown Preview */}
+                                <div>
+                                  <label className="block text-xs font-semibold text-black/70 dark:text-white/80 mb-2 uppercase tracking-wide">
+                                    Markdown Preview
+                                  </label>
+                                  <div className="glass p-4 max-h-64 overflow-y-auto">
+                                    <div 
+                                      className="prose prose-sm dark:prose-invert max-w-none text-black/80 dark:text-white/85"
+                                      dangerouslySetInnerHTML={{
+                                        __html: (editedTaskData[task.id]?.text ?? task.generatedData.text)
+                                          .replace(/&/g, '&amp;')
+                                          .replace(/</g, '&lt;')
+                                          .replace(/>/g, '&gt;')
+                                          .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                                          .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                                          .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                                          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                                          .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                                          .replace(/`(.*?)`/g, '<code>$1</code>')
+                                          .replace(/\n\n/g, '<br/><br/>')
+                                      }}
+                                    />
+                                  </div>
                                 </div>
                                 
                                 {/* Title - Editable */}
