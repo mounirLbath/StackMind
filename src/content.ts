@@ -35,6 +35,9 @@ class SolutionCapture {
 
     // Check if extension context is valid
     this.checkExtensionContext();
+
+    // Detect Google search and check for matching solutions
+    this.detectGoogleSearch();
   }
 
   private checkExtensionContext() {
@@ -683,6 +686,219 @@ class SolutionCapture {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  private async detectGoogleSearch() {
+    try {
+      const url = new URL(window.location.href);
+      const hostname = url.hostname.toLowerCase();
+      
+      // Check if this is a Google search results page
+      if ((hostname.includes('google.com') || hostname.includes('google.')) && url.pathname === '/search') {
+        const searchParams = url.searchParams;
+        const query = searchParams.get('q');
+        
+        if (query && query.trim()) {
+          // Wait a bit for page to load
+          setTimeout(() => {
+            this.searchAndShowMatches(query.trim());
+          }, 1000);
+        }
+      }
+    } catch (error) {
+      // Not a valid URL or not a Google search, ignore
+    }
+  }
+
+  private async searchAndShowMatches(searchQuery: string) {
+    try {
+      if (!this.checkExtensionContext()) return;
+
+      // Send search request to background script
+      chrome.runtime.sendMessage({
+        action: 'searchSolutions',
+        searchQuery: searchQuery
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          return;
+        }
+
+        if (response?.success && response.matches && response.matches.length > 0) {
+          // Show notification with matched solutions
+          this.showSearchMatchesNotification(response.matches, searchQuery);
+        }
+      });
+    } catch (error) {
+      console.error('MindStack: Search error:', error);
+    }
+  }
+
+  private showSearchMatchesNotification(matches: any[], searchQuery: string) {
+    // Don't show if notification already exists
+    if (document.getElementById('stackmind-search-notification')) {
+      return;
+    }
+
+    const notification = document.createElement('div');
+    notification.id = 'stackmind-search-notification';
+    notification.style.cssText = `
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      backdrop-filter: blur(16px) saturate(180%);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-left: 4px solid #4285F4;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+      z-index: 10004;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      max-width: 450px;
+      animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+
+    const matchCount = matches.length;
+    const maxPreview = Math.min(matchCount, 3);
+
+    notification.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: start; gap: 12px;">
+          <div style="flex-shrink: 0; margin-top: 2px;">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="10" cy="10" r="10" fill="#4285F4"/>
+              <path d="M8 7L12 10L8 13" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <div style="flex: 1;">
+            <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a;">Found ${matchCount} Matching Solution${matchCount !== 1 ? 's' : ''}</div>
+            <div style="font-size: 12px; color: #4a4a4a; margin-bottom: 12px;">For: "${this.escapeHtml(searchQuery)}"</div>
+            
+            ${matches.slice(0, maxPreview).map((match, idx) => `
+              <div style="
+                margin-bottom: ${idx < maxPreview - 1 ? '10px' : '0'};
+                padding: 10px;
+                background: rgba(66, 133, 244, 0.08);
+                border-radius: 8px;
+                border-left: 2px solid #4285F4;
+                cursor: pointer;
+                transition: all 0.2s;
+              " 
+              class="solution-match-preview"
+              data-solution-id="${match.id}"
+              onmouseover="this.style.background='rgba(66, 133, 244, 0.15)'; this.style.transform='translateX(2px)';"
+              onmouseout="this.style.background='rgba(66, 133, 244, 0.08)'; this.style.transform='translateX(0)';">
+                <div style="font-weight: 600; font-size: 13px; color: #1a1a1a; margin-bottom: 4px;">${this.escapeHtml(match.title || 'Untitled Solution')}</div>
+                <div style="font-size: 11px; color: #4a4a4a; line-height: 1.4;">
+                  ${match.summary ? this.escapeHtml(match.summary.substring(0, 80)) + '...' : (match.text ? this.escapeHtml(match.text.substring(0, 80)) + '...' : '')}
+                </div>
+                ${match.tags && match.tags.length > 0 ? `
+                  <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;">
+                    ${match.tags.slice(0, 3).map((tag: string) => `
+                      <span style="font-size: 9px; background: rgba(66, 133, 244, 0.2); color: #4285F4; padding: 2px 6px; border-radius: 4px;">${this.escapeHtml(tag)}</span>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            `).join('')}
+            
+            ${matchCount > maxPreview ? `
+              <div style="font-size: 11px; color: #737373; margin-top: 8px; text-align: center;">
+                +${matchCount - maxPreview} more solution${matchCount - maxPreview !== 1 ? 's' : ''}
+              </div>
+            ` : ''}
+            
+            <div style="display: flex; gap: 8px; margin-top: 12px;">
+              <button 
+                id="view-all-matches"
+                style="
+                  flex: 1;
+                  padding: 8px 12px;
+                  background: #4285F4;
+                  color: white;
+                  border: none;
+                  border-radius: 6px;
+                  font-size: 12px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: all 0.2s;
+                "
+                onmouseover="this.style.background='#357ae8'; this.style.transform='translateY(-1px)';"
+                onmouseout="this.style.background='#4285F4'; this.style.transform='translateY(0)';">
+                View All
+              </button>
+              <button 
+                id="close-search-notification"
+                style="
+                  padding: 8px 12px;
+                  background: rgba(0, 0, 0, 0.05);
+                  color: #1a1a1a;
+                  border: none;
+                  border-radius: 6px;
+                  font-size: 12px;
+                  font-weight: 500;
+                  cursor: pointer;
+                  transition: all 0.2s;
+                "
+                onmouseover="this.style.background='rgba(0, 0, 0, 0.1)';"
+                onmouseout="this.style.background='rgba(0, 0, 0, 0.05)';">
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(notification);
+
+    // Handle clicks on solution previews
+    notification.querySelectorAll('.solution-match-preview').forEach(preview => {
+      preview.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const solutionId = (preview as HTMLElement).getAttribute('data-solution-id');
+        if (solutionId) {
+          try {
+            if (!this.checkExtensionContext()) return;
+            chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
+            notification.style.animation = 'slideOutToTop 0.14s ease-out';
+            setTimeout(() => notification.remove(), 140);
+          } catch (e) {
+            console.warn('MindStack: Cannot open extension window');
+          }
+        }
+      });
+    });
+
+    // Handle "View All" button
+    const viewAllBtn = notification.querySelector('#view-all-matches');
+    viewAllBtn?.addEventListener('click', () => {
+      try {
+        if (!this.checkExtensionContext()) return;
+        chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
+        notification.style.animation = 'slideOutToTop 0.14s ease-out';
+        setTimeout(() => notification.remove(), 140);
+      } catch (e) {
+        console.warn('MindStack: Cannot open extension window');
+      }
+    });
+
+    // Handle close button
+    const closeBtn = notification.querySelector('#close-search-notification');
+    closeBtn?.addEventListener('click', () => {
+      notification.style.animation = 'slideOutToTop 0.14s ease-out';
+      setTimeout(() => notification.remove(), 140);
+    });
+
+    // Auto-dismiss after 10 seconds
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        notification.style.animation = 'slideOutToTop 0.14s ease-out';
+        setTimeout(() => notification.remove(), 140);
+      }
+    }, 10000);
   }
 }
 
