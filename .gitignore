@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Extension keys (keep private if using pinned IDs)
+key.pem
+*.pem
