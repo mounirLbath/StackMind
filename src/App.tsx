@@ -33,6 +33,8 @@ function App() {
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTask[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editedSolution, setEditedSolution] = useState<CapturedSolution | null>(null);
+  const [detailPanelWidth, setDetailPanelWidth] = useState(400);
+  const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
     loadSolutions();
@@ -57,6 +59,37 @@ function App() {
       chrome.runtime.onMessage.removeListener(listener);
     };
   }, []);
+
+  // Handle resize
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const newWidth = window.innerWidth - e.clientX;
+      const minWidth = 300;
+      const maxWidth = window.innerWidth - 400;
+      
+      setDetailPanelWidth(Math.max(minWidth, Math.min(newWidth, maxWidth)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
 
   const loadSolutions = async () => {
     try {
@@ -471,7 +504,17 @@ function App() {
             </div>
 
             {selectedSolution && (
-              <div className="w-[300px] min-w-[300px] max-w-[500px] lg:w-[400px] xl:w-[500px] flex flex-col bg-gray-50">
+              <div 
+                className="flex flex-col bg-gray-50 relative"
+                style={{ width: `${detailPanelWidth}px`, minWidth: '300px' }}
+              >
+                {/* Resize handle */}
+                <div
+                  className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 transition-colors z-10"
+                  onMouseDown={() => setIsResizing(true)}
+                  style={{ background: isResizing ? '#60a5fa' : 'transparent' }}
+                />
+                
                 <div className="p-3 flex justify-between items-center">
                   <h3 className="m-0 text-base text-gray-900 font-semibold">
                     {isEditing ? 'Edit Solution' : 'Solution Details'}
@@ -627,7 +670,7 @@ function App() {
                       <div className="mb-5">
                         <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Full Text:</label>
                         <div 
-                          className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto break-words"
+                          className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 break-words"
                           dangerouslySetInnerHTML={{
                             __html: parseMarkdown(selectedSolution.text)
                           }}
