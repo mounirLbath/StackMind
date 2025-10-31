@@ -6,6 +6,9 @@ class SolutionCapture {
   private capturePanel: HTMLDivElement | null = null;
   private selectedText: string = '';
   private currentTaskId: string | null = null;
+  private consoleRecallOverlay: HTMLDivElement | null = null;
+  private lastRecallNoteId: string | null = null;
+  private lastRecallTime: number = 0;
 
   constructor() {
     this.init();
@@ -30,6 +33,10 @@ class SolutionCapture {
       if (message.action === 'showSearchMatches') {
         // Show notification from background search (even if user navigated away)
         this.showSearchMatchesNotification(message.matches, message.searchQuery);
+      }
+      if (message.action === 'showConsoleRecall') {
+        // Console Recall: Show recall notification
+        this.showConsoleRecallNotification(message.noteId, message.noteTitle, message.errorText);
       }
       return true;
     });
@@ -889,6 +896,153 @@ class SolutionCapture {
         setTimeout(() => notification.remove(), 140);
       }
     }, 10000);
+  }
+
+  // Console Recall: Show glass pill overlay notification
+  private showConsoleRecallNotification(noteId: string, noteTitle: string, errorText?: string) {
+    // Throttle: Don't show the same note within 5 seconds
+    const now = Date.now();
+    if (noteId === this.lastRecallNoteId && (now - this.lastRecallTime) < 5000) {
+      return;
+    }
+    this.lastRecallNoteId = noteId;
+    this.lastRecallTime = now;
+    
+    // Remove existing overlay if present
+    if (this.consoleRecallOverlay) {
+      this.consoleRecallOverlay.remove();
+      this.consoleRecallOverlay = null;
+    }
+
+    const overlay = document.createElement('div');
+    this.consoleRecallOverlay = overlay;
+    overlay.id = 'stackmind-console-recall';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      backdrop-filter: blur(16px) saturate(180%);
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-left: 4px solid #f59e0b;
+      padding: 12px 16px;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(245, 158, 11, 0.2), 0 2px 8px rgba(0, 0, 0, 0.08);
+      z-index: 10005;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      max-width: 420px;
+      animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    `;
+
+    const titleText = noteTitle.length > 35 ? noteTitle.substring(0, 35) + '...' : noteTitle;
+    const displayErrorText = errorText 
+      ? (errorText.length > 80 ? errorText.substring(0, 80) + '...' : errorText)
+      : '';
+
+    overlay.innerHTML = `
+      <div style="flex-shrink: 0; font-size: 16px; margin-top: 2px;">⚡</div>
+      <div style="flex: 1; min-width: 0;">
+        <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a; font-size: 13px;">
+          Recall found: ${this.escapeHtml(titleText)}
+        </div>
+        ${displayErrorText ? `
+          <div style="
+            font-size: 11px; 
+            color: #666; 
+            font-family: 'Courier New', monospace;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 6px 8px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            word-break: break-word;
+            line-height: 1.3;
+          ">${this.escapeHtml(displayErrorText)}</div>
+        ` : ''}
+        <div style="font-size: 11px; color: #4a4a4a;">Click to open solution</div>
+      </div>
+      <button id="stackmind-recall-open" style="
+        background: #f59e0b;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+        flex-shrink: 0;
+        margin-top: 2px;
+      " onmouseover="this.style.background='#d97706'; this.style.transform='scale(1.05)';" onmouseout="this.style.background='#f59e0b'; this.style.transform='scale(1)';">
+        Open
+      </button>
+    `;
+
+    overlay.onmouseenter = () => {
+      overlay.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.95))';
+      overlay.style.transform = 'translateY(-2px)';
+      overlay.style.boxShadow = '0 12px 40px rgba(245, 158, 11, 0.3), 0 4px 12px rgba(0, 0, 0, 0.1)';
+    };
+
+    overlay.onmouseleave = () => {
+      overlay.style.background = 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9))';
+      overlay.style.transform = 'translateY(0)';
+      overlay.style.boxShadow = '0 8px 32px rgba(245, 158, 11, 0.2), 0 2px 8px rgba(0, 0, 0, 0.08)';
+    };
+
+    const handleOpen = () => {
+      try {
+        if (!this.checkExtensionContext()) return;
+        
+        // Open extension window with note ID in hash
+        chrome.runtime.sendMessage({
+          action: 'openExtensionWindow',
+          solutionId: noteId
+        });
+        
+        // Hide overlay
+        overlay.style.animation = 'slideOutToTop 0.14s ease-out';
+        setTimeout(() => {
+          if (document.body.contains(overlay)) {
+            overlay.remove();
+            this.consoleRecallOverlay = null;
+          }
+        }, 140);
+      } catch (e) {
+        console.warn('MindStack: Cannot open extension window:', e);
+        this.showReloadNotification();
+      }
+    };
+
+    // Click anywhere on overlay or the Open button
+    overlay.onclick = handleOpen;
+    const openBtn = overlay.querySelector('#stackmind-recall-open');
+    openBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleOpen();
+    });
+
+    document.body.appendChild(overlay);
+
+    // Auto-dismiss after 8 seconds
+    setTimeout(() => {
+      if (document.body.contains(overlay)) {
+        overlay.style.animation = 'slideOutToTop 0.14s ease-out';
+        setTimeout(() => {
+          if (document.body.contains(overlay)) {
+            overlay.remove();
+            this.consoleRecallOverlay = null;
+          }
+        }, 140);
+      }
+    }, 8000);
   }
 }
 

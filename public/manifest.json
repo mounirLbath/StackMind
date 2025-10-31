@@ -15,7 +15,8 @@
         "contextMenus",
         "notifications",
         "scripting",
-        "omnibox"
+        "omnibox",
+        "debugger"
     ],
     "host_permissions": [
         "<all_urls>"

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ExternalLink, Edit2, Copy, Trash2, X, Plus, CheckCircle2 } from 'lucide-react';
-import { Button, Card, Tag, Input, Textarea, Toast } from './lib/ui';
+import { Search, ExternalLink, Edit2, Copy, Trash2, X, Plus, CheckCircle2, Bug } from 'lucide-react';
+import { Button, Card, Tag, Input, Textarea, Toast, Toggle } from './lib/ui';
 
 interface CapturedSolution {
   id: string;
@@ -58,6 +58,7 @@ function App() {
     type: 'info',
     visible: false,
   });
+  const [consoleRecallEnabled, setConsoleRecallEnabled] = useState<boolean>(false);
 
 
   // Initialize detail panel width to 66% of container
@@ -150,6 +151,7 @@ function App() {
   useEffect(() => {
     loadSolutions();
     loadBackgroundTasks();
+    loadConsoleRecallSetting();
     
     const listener = (message: any) => {
       if (message.action === 'backgroundTaskUpdate') {
@@ -241,6 +243,39 @@ function App() {
           return notes;
         });
       }
+    });
+  };
+
+  const loadConsoleRecallSetting = () => {
+    chrome.storage.local.get(['consoleRecallEnabled'], (result) => {
+      // Default to false if not set
+      const enabled = result.consoleRecallEnabled !== undefined ? result.consoleRecallEnabled : false;
+      setConsoleRecallEnabled(enabled);
+    });
+  };
+
+  const toggleConsoleRecall = (enabled: boolean) => {
+    setConsoleRecallEnabled(enabled);
+    chrome.storage.local.set({ consoleRecallEnabled: enabled }, () => {
+      // Notify background script to enable/disable debugger
+      chrome.runtime.sendMessage({
+        action: 'toggleConsoleRecall',
+        enabled: enabled
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.error('Failed to toggle console recall:', chrome.runtime.lastError);
+          showToast('Failed to update setting', 'error');
+          // Revert state on error
+          setConsoleRecallEnabled(!enabled);
+        } else {
+          showToast(
+            enabled 
+              ? 'Console Recall enabled - errors will be matched to notes' 
+              : 'Console Recall disabled',
+            'info'
+          );
+        }
+      });
     });
   };
 
@@ -560,7 +595,27 @@ function App() {
           <h1 className="text-xl font-semibold text-black/90 dark:text-white">MindStack</h1>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg backdrop-blur-md transition-all duration-300 ${
+            consoleRecallEnabled 
+              ? 'bg-amber-500/15 dark:bg-amber-500/10 border border-amber-500/30 shadow-sm' 
+              : 'bg-white/10 dark:bg-white/5 border border-white/20'
+          }`}>
+            <Bug className={`w-4 h-4 transition-colors duration-300 ${
+              consoleRecallEnabled 
+                ? 'text-amber-600 dark:text-amber-400' 
+                : 'text-black/60 dark:text-white/60'
+            }`} />
+            <Toggle
+              checked={consoleRecallEnabled}
+              onChange={(e) => {
+                e.stopPropagation();
+                toggleConsoleRecall(e.target.checked);
+              }}
+              label="Console Recall"
+              title={consoleRecallEnabled ? "Console Recall is enabled - matching errors to notes" : "Console Recall is disabled"}
+            />
+          </div>
         {solutions.length > 0 && (
             <Button variant="ghost" size="sm" onClick={clearAll}>
               Clear All

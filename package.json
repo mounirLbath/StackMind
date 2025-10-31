@@ -13,6 +13,7 @@
     "@tailwindcss/vite": "^4.1.16",
     "framer-motion": "^12.23.24",
     "lucide-react": "^0.552.0",
+    "minisearch": "^7.2.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

@@ -1,6 +1,8 @@
 // Background service worker for MindStack extension
 // Handles extension lifecycle and message passing
 
+import MiniSearch from 'minisearch';
+
 // Global AI session for tag generation
 let aiSession: any = null;
 let isInitializingSession = false;
@@ -12,6 +14,16 @@ let isInitializingSummarizer = false;
 // Global Proofreader session
 let proofreaderSession: any = null;
 let isInitializingProofreader = false;
+
+// Console Recall: Minisearch index for note matching
+let searchIndex: MiniSearch<any> | null = null;
+let isIndexInitializing = false;
+
+// Console Recall: Track attached tabs (tabId -> true)
+const attachedTabs = new Map<number, boolean>();
+
+// Console Recall: Enable/disable flag (default: true)
+let consoleRecallEnabled = true;
 
 // Background tasks tracker
 interface BackgroundTask {
@@ -37,6 +49,206 @@ interface BackgroundTask {
 }
 
 let backgroundTasks: BackgroundTask[] = [];
+
+// Console Recall: Initialize search index with notes
+async function initializeSearchIndex() {
+  if (searchIndex || isIndexInitializing) return;
+  
+  isIndexInitializing = true;
+  
+  try {
+    const storageResult = await chrome.storage.local.get(['solutions']);
+    const solutions = storageResult.solutions || [];
+    
+    searchIndex = new MiniSearch({
+      fields: ['title', 'text', 'notes', 'summary', 'tags'], // fields to index
+      storeFields: ['id', 'title'], // fields to return with results
+      searchOptions: {
+        boost: { title: 2, text: 1, notes: 1.5, summary: 1.2 },
+        fuzzy: 0.2,
+        prefix: true
+      }
+    });
+    
+    // Index all solutions
+    searchIndex.addAll(solutions.map((s: any) => ({
+      id: s.id,
+      title: s.title || '',
+      text: s.text || '',
+      notes: s.notes || '',
+      summary: s.summary || '',
+      tags: (s.tags || []).join(' ')
+    })));
+    
+    console.log(`Console Recall: Indexed ${solutions.length} solutions`);
+  } catch (error) {
+    console.error('Failed to initialize search index:', error);
+    searchIndex = null;
+  } finally {
+    isIndexInitializing = false;
+  }
+}
+
+// Console Recall: Update search index when solutions change
+async function updateSearchIndex() {
+  try {
+    const storageResult = await chrome.storage.local.get(['solutions']);
+    const solutions = storageResult.solutions || [];
+    
+    if (searchIndex) {
+      // Clear and rebuild index
+      searchIndex.removeAll();
+      searchIndex.addAll(solutions.map((s: any) => ({
+        id: s.id,
+        title: s.title || '',
+        text: s.text || '',
+        notes: s.notes || '',
+        summary: s.summary || '',
+        tags: (s.tags || []).join(' ')
+      })));
+    } else {
+      // Initialize if not exists
+      await initializeSearchIndex();
+    }
+  } catch (error) {
+    console.error('Failed to update search index:', error);
+  }
+}
+
+// Console Recall: Token-overlap fallback matching
+function tokenOverlapMatch(errorText: string, solutions: any[]): any | null {
+  const errorTokens = errorText.toLowerCase()
+    .split(/[\s\-_\.:;\(\)\[\]<>]+/)
+    .filter(t => t.length > 2); // Filter out short tokens
+  
+  if (errorTokens.length === 0) return null;
+  
+  let bestMatch: any | null = null;
+  let bestScore = 0;
+  
+  for (const solution of solutions) {
+    const searchableText = [
+      solution.title || '',
+      solution.text || '',
+      solution.notes || '',
+      solution.summary || '',
+      (solution.tags || []).join(' ')
+    ].join(' ').toLowerCase();
+    
+    const solutionTokens = searchableText
+      .split(/[\s\-_\.:;\(\)\[\]<>]+/)
+      .filter(t => t.length > 2);
+    
+    // Count overlapping tokens
+    const overlap = errorTokens.filter(token => 
+      solutionTokens.some(st => st.includes(token) || token.includes(st))
+    ).length;
+    
+    const score = overlap / errorTokens.length;
+    
+    if (score > bestScore && score > 0.3) { // Require at least 30% overlap
+      bestScore = score;
+      bestMatch = solution;
+    }
+  }
+  
+  return bestMatch;
+}
+
+// Console Recall: Find matching note for error
+async function findMatchingNote(errorText: string, stackFrame?: string): Promise<any | null> {
+  try {
+    const searchText = (errorText + ' ' + (stackFrame || '')).trim();
+    
+    if (!searchText || searchText.length < 5) return null;
+    
+    // Ensure index is initialized
+    if (!searchIndex && !isIndexInitializing) {
+      await initializeSearchIndex();
+    }
+    
+    // Wait for index if initializing
+    let waitCount = 0;
+    while (isIndexInitializing && waitCount < 50) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitCount++;
+    }
+    
+    if (!searchIndex) {
+      // Fallback to token overlap if index not available
+      const storageResult = await chrome.storage.local.get(['solutions']);
+      const solutions = storageResult.solutions || [];
+      return tokenOverlapMatch(searchText, solutions);
+    }
+    
+    // Try minisearch first
+    const results = searchIndex.search(searchText, {
+      boost: { title: 2, text: 1, notes: 1.5 }
+    }).slice(0, 5); // Limit to top 5 results
+    
+    if (results.length > 0 && results[0].score > 0.1) {
+      // Get full solution data
+      const storageResult = await chrome.storage.local.get(['solutions']);
+      const solutions = storageResult.solutions || [];
+      const matched = solutions.find((s: any) => s.id === results[0].id);
+      if (matched) return matched;
+    }
+    
+    // Fallback to token overlap
+    const storageResult = await chrome.storage.local.get(['solutions']);
+    const solutions = storageResult.solutions || [];
+    return tokenOverlapMatch(searchText, solutions);
+    
+  } catch (error) {
+    console.error('Error finding matching note:', error);
+    // Fallback
+    const storageResult = await chrome.storage.local.get(['solutions']);
+    const solutions = storageResult.solutions || [];
+    return tokenOverlapMatch(errorText, solutions);
+  }
+}
+
+// Console Recall: Attach debugger to tab
+async function attachDebuggerToTab(tabId: number) {
+  // Don't attach if feature is disabled
+  if (!consoleRecallEnabled) {
+    return;
+  }
+  
+  if (attachedTabs.has(tabId)) return;
+  
+  try {
+    await chrome.debugger.attach({ tabId }, '1.0');
+    attachedTabs.set(tabId, true);
+    
+    // Enable required domains
+    await chrome.debugger.sendCommand({ tabId }, 'Runtime.enable');
+    await chrome.debugger.sendCommand({ tabId }, 'Log.enable');
+    
+    console.log(`Console Recall: Attached debugger to tab ${tabId}`);
+  } catch (error: any) {
+    // If already attached or tab doesn't exist, that's okay
+    if (error.message?.includes('Another debugger') || error.message?.includes('No tab')) {
+      console.log(`Console Recall: Could not attach to tab ${tabId}:`, error.message);
+    } else {
+      console.error(`Console Recall: Error attaching to tab ${tabId}:`, error);
+    }
+  }
+}
+
+// Console Recall: Detach debugger from tab
+async function detachDebuggerFromTab(tabId: number) {
+  if (!attachedTabs.has(tabId)) return;
+  
+  try {
+    await chrome.debugger.detach({ tabId });
+    attachedTabs.delete(tabId);
+    console.log(`Console Recall: Detached debugger from tab ${tabId}`);
+  } catch (error) {
+    console.error(`Console Recall: Error detaching from tab ${tabId}:`, error);
+    attachedTabs.delete(tabId);
+  }
+}
 
 // Helper function to notify popup and content scripts of updates
 function notifyPopup(action: string, data: any = {}) {
@@ -191,6 +403,12 @@ function stopKeepAlive() {
 initializeAISession();
 initializeSummarizer();
 initializeProofreader();
+initializeSearchIndex();
+
+// Load console recall setting on startup
+chrome.storage.local.get(['consoleRecallEnabled'], (result) => {
+  consoleRecallEnabled = result.consoleRecallEnabled !== undefined ? result.consoleRecallEnabled : false;
+});
 
 // Initialize when Chrome browser starts
 chrome.runtime.onStartup.addListener(() => {
@@ -201,16 +419,29 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.runtime.onInstalled.addListener(() => {
   // Initialize storage if needed
-  chrome.storage.local.get(['solutions'], (result) => {
+  chrome.storage.local.get(['solutions', 'consoleRecallEnabled'], (result) => {
     if (!result.solutions) {
       chrome.storage.local.set({ solutions: [] });
     }
+    
+    // Load console recall setting (default: false)
+    consoleRecallEnabled = result.consoleRecallEnabled !== undefined ? result.consoleRecallEnabled : false;
   });
   
   // Initialize AI session
   initializeAISession();
   initializeSummarizer();
   initializeProofreader();
+  initializeSearchIndex();
+  
+  // Console Recall: Attach to all existing tabs (if enabled)
+  chrome.tabs.query({}, (tabs) => {
+    tabs.forEach(tab => {
+      if (tab.id && tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+        attachDebuggerToTab(tab.id);
+      }
+    });
+  });
 });
 
 // Listen for messages from content scripts or popup
@@ -229,6 +460,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const filtered = solutions.filter((s: any) => s.id !== message.id);
       chrome.storage.local.set({ solutions: filtered }, () => {
         sendResponse({ success: true });
+        // Console Recall: Update search index
+        updateSearchIndex();
       });
     });
     return true;
@@ -237,6 +470,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.action === 'clearAllSolutions') {
     chrome.storage.local.set({ solutions: [] }, () => {
       sendResponse({ success: true });
+      // Console Recall: Update search index
+      updateSearchIndex();
     });
     return true;
   }
@@ -249,6 +484,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       );
       chrome.storage.local.set({ solutions: updated }, () => {
         sendResponse({ success: true });
+        // Console Recall: Update search index
+        updateSearchIndex();
       });
     });
     return true;
@@ -565,6 +802,37 @@ Generate title:`;
     return false; // No async response needed
   }
 
+  if (message.action === 'toggleConsoleRecall') {
+    (async () => {
+      const enabled = message.enabled;
+      consoleRecallEnabled = enabled;
+      
+      // Load setting from storage to persist
+      await chrome.storage.local.set({ consoleRecallEnabled: enabled });
+      
+      if (enabled) {
+        // Reattach to all http/https tabs
+        chrome.tabs.query({}, (tabs) => {
+          tabs.forEach(tab => {
+            if (tab.id && tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+              attachDebuggerToTab(tab.id);
+            }
+          });
+        });
+        console.log('Console Recall: Enabled - debuggers will be attached to tabs');
+      } else {
+        // Detach from all tabs
+        attachedTabs.forEach((_, tabId) => {
+          detachDebuggerFromTab(tabId);
+        });
+        console.log('Console Recall: Disabled - all debuggers detached');
+      }
+      
+      sendResponse({ success: true });
+    })();
+    return true; // Keep channel open for async response
+  }
+
   if (message.action === 'processInBackground') {
     (async () => {
       const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, isFormatted, notes, taskId: providedTaskId } = message;
@@ -703,6 +971,9 @@ Title:`;
         const solutions = storageResult.solutions || [];
         solutions.unshift(solution);
         await chrome.storage.local.set({ solutions });
+        
+        // Console Recall: Update search index when solution is saved
+        updateSearchIndex();
         
         // Remove task from background tasks
         backgroundTasks = backgroundTasks.filter(t => t.id !== taskId);
@@ -1056,6 +1327,137 @@ chrome.omnibox.onInputEntered.addListener((text, disposition) => {
         chrome.tabs.create({ url });
       }
     });
+  }
+});
+
+// Console Recall: Debugger event listener - handle console errors/warnings
+chrome.debugger.onEvent.addListener((source, method, params: any) => {
+  // Don't process events if feature is disabled
+  if (!consoleRecallEnabled) return;
+  
+  const tabId = source.tabId;
+  if (!tabId) return;
+  
+  // Handle Runtime.exceptionThrown
+  if (method === 'Runtime.exceptionThrown') {
+    const exception = params.exceptionDetails;
+    if (!exception) return;
+    
+    const errorText = exception.exception?.description || exception.text || '';
+    const stackFrame = exception.stackTrace?.callFrames?.[0];
+    const stackFrameText = stackFrame 
+      ? `${stackFrame.functionName || '(anonymous)'} @ ${stackFrame.url || ''}:${stackFrame.lineNumber || 0}`
+      : undefined;
+    
+    if (errorText) {
+      (async () => {
+        const matchedNote = await findMatchingNote(errorText, stackFrameText);
+        if (matchedNote) {
+          chrome.tabs.sendMessage(tabId, {
+            action: 'showConsoleRecall',
+            noteId: matchedNote.id,
+            noteTitle: matchedNote.title,
+            errorText: errorText.substring(0, 200) // Limit length for display
+          }).catch(() => {
+            // Tab might not have content script, ignore
+          });
+        }
+      })();
+    }
+  }
+  
+  // Handle Runtime.consoleAPICalled for console.error, console.warn
+  if (method === 'Runtime.consoleAPICalled') {
+    const type = params.type;
+    if (type === 'error' || type === 'warning') {
+      const args = params.args || [];
+      const errorText = args.map((arg: any) => {
+        if (arg.type === 'string') return arg.value;
+        if (arg.type === 'object' && arg.preview) {
+          return arg.preview.description || JSON.stringify(arg.preview);
+        }
+        return arg.description || '';
+      }).join(' ').trim();
+      
+      if (errorText) {
+        (async () => {
+          const matchedNote = await findMatchingNote(errorText);
+          if (matchedNote) {
+            chrome.tabs.sendMessage(tabId, {
+              action: 'showConsoleRecall',
+              noteId: matchedNote.id,
+              noteTitle: matchedNote.title,
+              errorText: errorText.substring(0, 200) // Limit length for display
+            }).catch(() => {
+              // Tab might not have content script, ignore
+            });
+          }
+        })();
+      }
+    }
+  }
+  
+  // Handle Log.entryAdded for console errors
+  if (method === 'Log.entryAdded') {
+    const entry = params.entry;
+    if (entry.level === 'error' || entry.level === 'warning') {
+      const errorText = entry.text || '';
+      if (errorText) {
+        (async () => {
+          const matchedNote = await findMatchingNote(errorText);
+          if (matchedNote) {
+            chrome.tabs.sendMessage(tabId, {
+              action: 'showConsoleRecall',
+              noteId: matchedNote.id,
+              noteTitle: matchedNote.title,
+              errorText: errorText.substring(0, 200) // Limit length for display
+            }).catch(() => {
+              // Tab might not have content script, ignore
+            });
+          }
+        })();
+      }
+    }
+  }
+});
+
+// Console Recall: Attach debugger when tab is activated (if enabled)
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  if (!consoleRecallEnabled) return;
+  
+  chrome.tabs.get(activeInfo.tabId, (tab) => {
+    if (tab?.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+      attachDebuggerToTab(activeInfo.tabId);
+    }
+  });
+});
+
+// Console Recall: Attach debugger when tab is updated (new page loaded)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  // Only handle debugger attachment if enabled
+  if (consoleRecallEnabled && changeInfo.status === 'loading' && tab?.url && 
+      (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+    // Detach first if attached
+    if (attachedTabs.has(tabId)) {
+      detachDebuggerFromTab(tabId);
+    }
+    // Reattach after a short delay to ensure page is ready
+    setTimeout(() => {
+      attachDebuggerToTab(tabId);
+    }, 500);
+  }
+});
+
+// Console Recall: Detach debugger when tab is closed
+chrome.tabs.onRemoved.addListener((tabId) => {
+  detachDebuggerFromTab(tabId);
+});
+
+// Console Recall: Handle debugger detach (e.g., if another extension attaches)
+chrome.debugger.onDetach.addListener((source) => {
+  const tabId = source.tabId;
+  if (tabId) {
+    attachedTabs.delete(tabId);
   }
 });
 
