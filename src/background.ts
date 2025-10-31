@@ -133,14 +133,10 @@ function stopKeepAlive() {
 }
 
 // Initialize on extension load (when service worker starts)
+// This runs every time the service worker wakes up, which is necessary
+// because Chrome can terminate service workers at any time
 initializeAISession();
 initializeSummarizer();
-
-// Initialize when Chrome browser starts
-chrome.runtime.onStartup.addListener(() => {
-  initializeAISession();
-  initializeSummarizer();
-});
 
 chrome.runtime.onInstalled.addListener(() => {
   // Initialize storage if needed
@@ -150,9 +146,7 @@ chrome.runtime.onInstalled.addListener(() => {
     }
   });
   
-  // Initialize AI session
-  initializeAISession();
-  initializeSummarizer();
+  // No need to initialize AI here - already done at service worker start
 });
 
 // Listen for messages from content scripts or popup
@@ -227,21 +221,48 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        const promptText = `Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
-    Generate tags for this programming solution:
+        // Define JSON schema for structured output
+        const schema = {
+          type: "object",
+          properties: {
+            tags: {
+              type: "array",
+              items: {
+                type: "string"
+              },
+              description: "An array of 3-5 relevant technical tags",
+              minItems: 3,
+              maxItems: 5
+            }
+          },
+          required: ["tags"]
+        };
 
-    Title: ${message.title}
+        // Pass messages directly to prompt()
+        const result = await aiSession.prompt(
+          [
+            {
+              role: 'system',
+              content: 'You are an expert at categorizing programming solutions with relevant tags.'
+            },
+            {
+              role: 'user',
+              content: `Generate 3-5 concise, lowercase tags that capture the key technologies, concepts, or problem domains for this programming solution. Return ONLY a JSON object with format { "tags": ["tag1", "tag2", ...] }.
 
-    Solution: ${message.text}...
+Title: ${message.title}
 
-    Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
+Solution: ${message.text}...
+Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`
+            }
+          ],
+          {
+            responseConstraint: schema,
+            omitResponseConstraintInput: true
+          }
+        );
         
-        const result = await aiSession.prompt(promptText);
-        
-        // Parse the tags
-        const tags = result.split(',')
-          .map((tag: string) => tag.trim().toLowerCase())
-          .filter((tag: string) => tag.length > 0);
+        const parsed = JSON.parse(result);
+        const tags = parsed.tags.map((tag: string) => tag.trim().toLowerCase()).filter((tag: string) => tag.length > 0);
         
         sendResponse({ success: true, tags });
       } catch (error) {
@@ -278,17 +299,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        const promptText = `Generate a concise, descriptive title (max 60 characters) for this programming solution. Return ONLY the title, no quotes or explanations.
+        // Define JSON schema for structured output
+        const schema = {
+          type: "object",
+          properties: {
+            title: {
+              type: "string",
+              description: "A concise, descriptive title for the programming solution, maximum 60 characters"
+            }
+          },
+          required: ["title"]
+        };
+
+        // Pass messages directly to prompt()
+        const result = await aiSession.prompt(
+          [
+            {
+              role: 'system',
+              content: 'You are an expert at creating concise, descriptive titles for programming solutions. Generate titles that are clear, specific, and under 60 characters.'
+            },
+            {
+              role: 'user',
+              content: `Generate a title for this programming solution. Return ONLY a JSON object with format { "title": "your title here" }.
 
 Page Title: ${message.pageTitle}
 
-Solution Content: ${message.text.substring(0, 500)}...
-
-Generate title:`;
+Solution Content: ${message.text.substring(0, 500)}...`
+            }
+          ],
+          {
+            responseConstraint: schema,
+            omitResponseConstraintInput: true
+          }
+        );
         
-        const title = await aiSession.prompt(promptText);
-        
-        sendResponse({ success: true, title: title.trim().replace(/^["']|["']$/g, '') });
+        const parsed = JSON.parse(result);
+        sendResponse({ success: true, title: parsed.title });
       } catch (error) {
         console.error('Title generation error:', error);
         aiSession = null;
@@ -489,9 +535,40 @@ Generate title:`;
           try {
             if (!aiSession) await initializeAISession();
             if (aiSession) {
-              const titlePrompt = `Generate a concise technical title (max 10 words) for this Stack Overflow solution:\n\nPage: ${pageTitle}\n\nContent: ${selectedText.substring(0, 500)}`;
-              const generatedTitle = await aiSession.prompt(titlePrompt);
-              results.title = generatedTitle.trim().replace(/^["']|["']$/g, '');
+              const schema = {
+                type: "object",
+                properties: {
+                  title: {
+                    type: "string",
+                    description: "A concise, descriptive title for the programming solution, maximum 60 characters"
+                  }
+                },
+                required: ["title"]
+              };
+
+              const result = await aiSession.prompt(
+                [
+                  {
+                    role: 'system',
+                    content: 'You are an expert at creating concise, descriptive titles for programming solutions. Generate titles that are clear, specific, and under 60 characters.'
+                  },
+                  {
+                    role: 'user',
+                    content: `Generate a title for this programming solution. Return ONLY a JSON object with format { "title": "your title here" }.
+
+Page Title: ${pageTitle}
+
+Solution Content: ${selectedText.substring(0, 500)}...`
+                  }
+                ],
+                {
+                  responseConstraint: schema,
+                  omitResponseConstraintInput: true
+                }
+              );
+              
+              const parsed = JSON.parse(result);
+              results.title = parsed.title;
               task.progress.title = true;
               notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
@@ -505,9 +582,43 @@ Generate title:`;
           try {
             if (!aiSession) await initializeAISession();
             if (aiSession) {
-              const tagsPrompt = `Generate 3-5 relevant technical tags (keywords) for this Stack Overflow solution. Return ONLY a comma-separated list of tags, nothing else:\n\n${selectedText.substring(0, 500)}`;
-              const generatedTags = await aiSession.prompt(tagsPrompt);
-              results.tags = generatedTags.toLowerCase().split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0);
+              const schema = {
+                type: "object",
+                properties: {
+                  tags: {
+                    type: "array",
+                    items: {
+                      type: "string"
+                    },
+                    description: "An array of 3-5 relevant technical tags",
+                    minItems: 3,
+                    maxItems: 5
+                  }
+                },
+                required: ["tags"]
+              };
+
+              const result = await aiSession.prompt(
+                [
+                  {
+                    role: 'system',
+                    content: 'You are an expert at categorizing programming solutions with relevant tags. Generate 3-5 concise, lowercase tags that capture the key technologies, concepts, or problem domains.'
+                  },
+                  {
+                    role: 'user',
+                    content: `Generate tags for this programming solution. Return ONLY a JSON object with format { "tags": ["tag1", "tag2", ...] }.
+
+Content: ${selectedText.substring(0, 500)}...`
+                  }
+                ],
+                {
+                  responseConstraint: schema,
+                  omitResponseConstraintInput: true
+                }
+              );
+              
+              const parsed = JSON.parse(result);
+              results.tags = parsed.tags.map((t: string) => t.trim().toLowerCase()).filter((t: string) => t.length > 0);
               task.progress.tags = true;
               notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
