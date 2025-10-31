@@ -20,6 +20,7 @@ class SolutionCapture {
   private tags: string[] = [];
   private generatedTitle: string = '';
   private generatedSummary: string = '';
+  private isTextFormatted: boolean = false;
 
   constructor() {
     this.init();
@@ -450,6 +451,7 @@ class SolutionCapture {
     this.tags = [];
     this.generatedTitle = '';
     this.generatedSummary = '';
+    this.isTextFormatted = false;
   }
 
   private async generateTitle(): Promise<void> {
@@ -535,6 +537,7 @@ class SolutionCapture {
 
           // Update the selected text with formatted version
           this.selectedText = response.formatted;
+          this.isTextFormatted = true;
           
           // Update the displayed text
           if (contentEl) {
@@ -794,6 +797,7 @@ class SolutionCapture {
       currentTags: this.tags,
       currentTitle: this.generatedTitle,
       currentSummary: this.generatedSummary,
+      isFormatted: this.isTextFormatted,
       notes: notes
     });
     

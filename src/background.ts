@@ -14,6 +14,7 @@ interface BackgroundTask {
   id: string;
   status: 'processing' | 'completed' | 'error';
   progress: {
+    format: boolean;
     title: boolean;
     tags: boolean;
     summary: boolean;
@@ -369,7 +370,7 @@ Generate title:`;
 
   if (message.action === 'processInBackground') {
     (async () => {
-      const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, notes } = message;
+      const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, isFormatted, notes } = message;
       const sourceTabId = _sender.tab?.id; // Save the tab ID where the request came from
       
       // Start keep-alive to prevent service worker from sleeping
@@ -380,6 +381,7 @@ Generate title:`;
         id: taskId,
         status: 'processing',
         progress: {
+          format: !!isFormatted,
           title: !!currentTitle,
           tags: !!(currentTags && currentTags.length > 0),
           summary: !!currentSummary
@@ -400,16 +402,23 @@ Generate title:`;
           text: selectedText
         };
 
-        // Format text with code backticks
-        try {
-          if (!aiSession) await initializeAISession();
-          if (aiSession) {
-            const formatPrompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT same text, just add markdown code formatting where appropriate. Do not summarize or change the content:\n\n${selectedText}`;
-            const formatted = await aiSession.prompt(formatPrompt);
-            results.text = formatted.trim();
+        // Format text with code backticks (only if not already formatted)
+        if (!isFormatted) {
+          try {
+            if (!aiSession) await initializeAISession();
+            if (aiSession) {
+              const formatPrompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT same text, just add markdown code formatting where appropriate. Do not summarize or change the content:\n\n${selectedText}`;
+              const formatted = await aiSession.prompt(formatPrompt);
+              results.text = formatted.trim();
+              task.progress.format = true;
+              notifyPopup('backgroundTaskUpdate');
+            }
+          } catch (error) {
+            console.error('Background text formatting failed:', error);
+            // Even if formatting fails, mark it as done so we don't block
+            task.progress.format = true;
+            notifyPopup('backgroundTaskUpdate');
           }
-        } catch (error) {
-          console.error('Background text formatting failed:', error);
         }
 
         // Generate title if missing

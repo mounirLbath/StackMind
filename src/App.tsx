@@ -16,6 +16,7 @@ interface BackgroundTask {
   id: string;
   status: 'processing' | 'completed' | 'error';
   progress: {
+    format: boolean;
     title: boolean;
     tags: boolean;
     summary: boolean;
@@ -375,6 +376,9 @@ function App() {
                   Processing: {task.pageTitle}
                 </div>
                 <div className="flex gap-3 mt-1">
+                  <span className={`text-xs ${task.progress.format ? 'text-green-600' : 'text-gray-500'}`}>
+                    {task.progress.format ? '✓' : '○'} Format
+                  </span>
                   <span className={`text-xs ${task.progress.title ? 'text-green-600' : 'text-gray-500'}`}>
                     {task.progress.title ? '✓' : '○'} Title
                   </span>
