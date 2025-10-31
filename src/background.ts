@@ -25,10 +25,22 @@ interface BackgroundTask {
 
 let backgroundTasks: BackgroundTask[] = [];
 
-// Helper function to notify popup of updates
+// Helper function to notify popup and content scripts of updates
 function notifyPopup(action: string, data: any = {}) {
+  // Notify popup window
   chrome.runtime.sendMessage({ action, ...data }).catch(() => {
     // Popup might not be open, which is fine
+  });
+  
+  // Also notify all tabs (for content scripts)
+  chrome.tabs.query({}).then((tabs) => {
+    tabs.forEach((tab) => {
+      if (tab.id) {
+        chrome.tabs.sendMessage(tab.id, { action, ...data }).catch(() => {
+          // Tab might not have content script, which is fine
+        });
+      }
+    });
   });
 }
 
@@ -368,15 +380,54 @@ Generate title:`;
     return true;
   }
 
+  if (message.action === 'openPopup') {
+    // Send message to content script to show capture panel
+    // Get the tab ID from sender if available, otherwise get active tab
+    const sendToTab = (tabId: number) => {
+      chrome.tabs.sendMessage(tabId, {
+        action: 'showCapturePanel',
+        taskId: message.taskId
+      });
+    };
+
+    if (_sender.tab?.id) {
+      // Message came from content script
+      sendToTab(_sender.tab.id);
+    } else {
+      // Message came from popup, find the active tab
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          sendToTab(tabs[0].id);
+        }
+      });
+    }
+    return true;
+  }
+
+  if (message.action === 'getTaskStatus') {
+    const task = backgroundTasks.find(t => t.id === message.taskId);
+    sendResponse({ task });
+    return true;
+  }
+
+  if (message.action === 'updateTaskNotes') {
+    // Find the task and update its notes
+    const task = backgroundTasks.find(t => t.id === message.taskId);
+    if (task) {
+      (task as any).notes = message.notes;
+    }
+    return true;
+  }
+
   if (message.action === 'processInBackground') {
     (async () => {
-      const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, isFormatted, notes } = message;
+      const { selectedText, url, pageTitle, currentTags, currentTitle, currentSummary, isFormatted, notes, taskId: providedTaskId } = message;
       const sourceTabId = _sender.tab?.id; // Save the tab ID where the request came from
       
       // Start keep-alive to prevent service worker from sleeping
       startKeepAlive();
       
-      const taskId = Date.now().toString();
+      const taskId = providedTaskId || Date.now().toString();
       const task: BackgroundTask = {
         id: taskId,
         status: 'processing',
@@ -391,7 +442,7 @@ Generate title:`;
       };
       
       backgroundTasks.push(task);
-      notifyPopup('backgroundTaskUpdate');
+      notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
       
       try {
         // Process any missing AI tasks
@@ -411,13 +462,13 @@ Generate title:`;
               const formatted = await aiSession.prompt(formatPrompt);
               results.text = formatted.trim();
               task.progress.format = true;
-              notifyPopup('backgroundTaskUpdate');
+              notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
           } catch (error) {
             console.error('Background text formatting failed:', error);
             // Even if formatting fails, mark it as done so we don't block
             task.progress.format = true;
-            notifyPopup('backgroundTaskUpdate');
+            notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
           }
         }
 
@@ -430,7 +481,7 @@ Generate title:`;
               const generatedTitle = await aiSession.prompt(titlePrompt);
               results.title = generatedTitle.trim().replace(/^["']|["']$/g, '');
               task.progress.title = true;
-              notifyPopup('backgroundTaskUpdate');
+              notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
           } catch (error) {
             console.error('Background title generation failed:', error);
@@ -446,7 +497,7 @@ Generate title:`;
               const generatedTags = await aiSession.prompt(tagsPrompt);
               results.tags = generatedTags.toLowerCase().split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0);
               task.progress.tags = true;
-              notifyPopup('backgroundTaskUpdate');
+              notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
           } catch (error) {
             console.error('Background tag generation failed:', error);
@@ -461,13 +512,16 @@ Generate title:`;
               const summary = await summarizerSession.summarize(selectedText);
               results.summary = summary.trim();
               task.progress.summary = true;
-              notifyPopup('backgroundTaskUpdate');
+              notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
             }
           } catch (error) {
             console.error('Background summary generation failed:', error);
           }
         }
 
+        // Get notes from the task if they were updated
+        const taskNotes = (task as any).notes || notes;
+        
         // Save the solution
         const solution = {
           id: Date.now().toString(),
@@ -477,17 +531,17 @@ Generate title:`;
           title: results.title || pageTitle || 'Untitled Solution',
           timestamp: Date.now(),
           tags: results.tags,
-          notes: notes
+          notes: taskNotes
         };
 
         const result = await chrome.storage.local.get(['solutions']);
         const solutions = result.solutions || [];
         solutions.unshift(solution);
         await chrome.storage.local.set({ solutions });
-
+        
         // Mark task as completed
         task.status = 'completed';
-        notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle });
+        notifyPopup('backgroundTaskComplete', { pageTitle: task.pageTitle, taskId });
         
         // Show notification on the currently active tab by injecting it directly
         chrome.tabs.query({ active: true, currentWindow: true }).then(async (tabs) => {
@@ -600,7 +654,7 @@ Generate title:`;
       } catch (error) {
         console.error('Background processing error:', error);
         task.status = 'error';
-        notifyPopup('backgroundTaskUpdate');
+        notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
         
         // Show error notification in tab if available
         if (sourceTabId) {

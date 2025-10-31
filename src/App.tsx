@@ -430,7 +430,16 @@ function App() {
                   </span>
                 </div>
               </div>
-              <div className="ml-4">
+              <div className="ml-4 flex items-center gap-2">
+                <button 
+                  className="bg-blue-600 text-white border-0 px-3 py-1.5 rounded cursor-pointer text-xs font-medium transition-colors hover:bg-blue-700"
+                  onClick={() => {
+                    chrome.runtime.sendMessage({ action: 'openPopup', taskId: task.id });
+                  }}
+                  title="View and edit on page"
+                >
+                  View Progress
+                </button>
                 {task.status === 'processing' && (
                   <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
                 )}
