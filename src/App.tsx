@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 interface CapturedSolution {
   id: string;
   text: string;
+  summary?: string;
   url: string;
   title: string;
   timestamp: number;
@@ -15,6 +16,7 @@ function App() {
   const [solutions, setSolutions] = useState<CapturedSolution[]>([]);
   const [selectedSolution, setSelectedSolution] = useState<CapturedSolution | null>(null);
   const [filter, setFilter] = useState('');
+  const [showFullText, setShowFullText] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -190,16 +192,22 @@ function App() {
                 <div
                   key={solution.id}
                   className={`px-5 py-4 border-b border-gray-200 cursor-pointer transition-colors hover:bg-gray-50 ${selectedSolution?.id === solution.id ? 'bg-gray-100 border-l-[3px] border-l-gray-700' : ''}`}
-                  onClick={() => setSelectedSolution(solution)}
+                  onClick={() => {
+                    setSelectedSolution(solution);
+                    setShowFullText(false);
+                  }}
                 >
                   <div className="flex justify-between items-start gap-3 mb-2">
                     <div className="flex-1 font-semibold text-[13px] text-gray-900 leading-snug overflow-hidden line-clamp-2">{solution.title}</div>
                     <div className="text-[11px] text-gray-500 whitespace-nowrap">{formatDate(solution.timestamp)}</div>
                   </div>
                   <div className="text-xs text-gray-600 leading-normal overflow-hidden line-clamp-2">
-                    {solution.text.substring(0, 100)}...
+                    {solution.summary ? solution.summary.substring(0, 150) : solution.text.substring(0, 100)}...
                   </div>
                   <div className="flex gap-2 mt-2 flex-wrap">
+                    {solution.summary && (
+                      <div className="text-[11px] text-gray-700 font-medium bg-gray-200 px-2 py-0.5 rounded">AI Summary</div>
+                    )}
                     {solution.notes && (
                       <div className="text-[11px] text-gray-700 font-medium">Has notes</div>
                     )}
@@ -244,9 +252,21 @@ function App() {
                   </div>
 
                   <div className="mb-5">
-                    <label className="block font-semibold text-[11px] text-gray-700 mb-2 uppercase tracking-wide">Captured Text:</label>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="block font-semibold text-[11px] text-gray-700 uppercase tracking-wide">
+                        {selectedSolution.summary && !showFullText ? 'Summary' : 'Full Text'}:
+                      </label>
+                      {selectedSolution.summary && (
+                        <button
+                          onClick={() => setShowFullText(!showFullText)}
+                          className="text-[11px] text-gray-600 hover:text-gray-900 underline"
+                        >
+                          {showFullText ? 'Show Summary' : 'Show Full Text'}
+                        </button>
+                      )}
+                    </div>
                     <div className="bg-white border border-gray-300 rounded px-3 py-3 text-[13px] leading-relaxed text-gray-800 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words">
-                      {selectedSolution.text}
+                      {selectedSolution.summary && !showFullText ? selectedSolution.summary : selectedSolution.text}
                     </div>
                   </div>
 

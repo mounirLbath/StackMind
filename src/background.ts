@@ -22,6 +22,7 @@ async function initializeAISession() {
 
     // @ts-ignore
     aiSession = await LanguageModel.create({
+        initialPrompts: [],
       monitor(m: any) {
         m.addEventListener('downloadprogress', (e: any) => {
           console.log(`AI model: ${Math.round(e.loaded * 100)}%`);
@@ -128,15 +129,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        const promptText = `You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
+        const promptText = [
+            { role: 'system', content: 'You are a helpful assistant that generates relevant tags for programming solutions. Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.' },
+            { role: 'user', content: `Generate 3-5 concise, relevant tags based on the solution content. Return only the tags separated by commas, no explanation.
+    Generate tags for this programming solution:
 
-Generate tags for this programming solution:
+    Title: ${message.title}
 
-Title: ${message.title}
+    Solution: ${message.text}...
 
-Solution: ${message.text}...
-
-Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
+    Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`},];
         
         const result = await aiSession.prompt(promptText);
         
@@ -160,6 +162,82 @@ Generate 3-5 relevant tags (e.g., javascript, react, error-handling, async):`;
       }
     })();
     return true; // Keep the message channel open for async response
+  }
+
+  if (message.action === 'generateTitle') {
+    (async () => {
+      try {
+        if (!aiSession && !isInitializingSession) {
+          await initializeAISession();
+        }
+        
+        let waitCount = 0;
+        while (isInitializingSession && waitCount < 100) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          waitCount++;
+        }
+        
+        if (!aiSession) {
+          sendResponse({ success: false, error: 'AI not available.' });
+          return;
+        }
+
+        const promptText = `Generate a concise, descriptive title (max 60 characters) for this programming solution. Return ONLY the title, no quotes or explanations.
+
+Page Title: ${message.pageTitle}
+
+Solution Content: ${message.text.substring(0, 500)}...
+
+Generate title:`;
+        
+        const title = await aiSession.prompt(promptText);
+        
+        sendResponse({ success: true, title: title.trim().replace(/^["']|["']$/g, '') });
+      } catch (error) {
+        console.error('Title generation error:', error);
+        aiSession = null;
+        initializeAISession();
+        sendResponse({ success: false, error: `Failed: ${(error as Error).message}` });
+      }
+    })();
+    return true;
+  }
+
+  if (message.action === 'summarizeText') {
+    (async () => {
+      try {
+        // @ts-ignore - Chrome Summarizer API is experimental
+        const availability = await Summarizer.availability();
+        
+        if (availability === 'unavailable') {
+          sendResponse({ success: false, error: 'Summarizer not available.' });
+          return;
+        }
+
+        // @ts-ignore
+        const summarizer = await Summarizer.create({
+          type: 'key-points',
+          format: 'markdown',
+          length: 'medium',
+          sharedContext: 'This is a programming solution from Stack Overflow',
+          monitor(m: any) {
+            m.addEventListener('downloadprogress', (e: any) => {
+              console.log(`Summarizer model: ${Math.round(e.loaded * 100)}%`);
+            });
+          }
+        });
+
+        const summary = await summarizer.summarize(message.text, {
+          context: 'Focus on preserving code snippets and technical details while removing redundant explanations.'
+        });
+        
+        sendResponse({ success: true, summary: summary.trim() });
+      } catch (error) {
+        console.error('Summarization error:', error);
+        sendResponse({ success: false, error: `Failed: ${(error as Error).message}` });
+      }
+    })();
+    return true;
   }
 });
 

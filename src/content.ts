@@ -4,11 +4,13 @@
 interface CapturedSolution {
   id: string;
   text: string;
+  summary?: string;
   url: string;
   title: string;
   timestamp: number;
   questionId?: string;
   tags?: string[];
+  notes?: string;
 }
 
 class StackOverflowCapture {
@@ -16,6 +18,8 @@ class StackOverflowCapture {
   private capturePanel: HTMLDivElement | null = null;
   private selectedText: string = '';
   private tags: string[] = [];
+  private generatedTitle: string = '';
+  private generatedSummary: string = '';
 
   constructor() {
     this.init();
@@ -170,6 +174,31 @@ class StackOverflowCapture {
 
         <div style="margin-bottom: 16px;">
           <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #424242; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+            Title:
+          </label>
+          <div id="stackmind-title-status" style="
+            padding: 12px;
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #757575;
+            margin-bottom: 8px;
+          ">Generating title with AI...</div>
+          <input type="text" id="stackmind-title-input" placeholder="Custom title (optional)" style="
+            width: 100%;
+            border: 1px solid #bdbdbd;
+            border-radius: 4px;
+            padding: 8px 12px;
+            font-size: 13px;
+            font-family: inherit;
+            box-sizing: border-box;
+            display: none;
+          " onmouseover="this.style.borderColor='#757575'" onmouseout="this.style.borderColor='#bdbdbd'">
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #424242; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
             Tags:
           </label>
           <div id="stackmind-tags-status" style="
@@ -196,6 +225,34 @@ class StackOverflowCapture {
             font-family: inherit;
             box-sizing: border-box;
           " onmouseover="this.style.borderColor='#757575'" onmouseout="this.style.borderColor='#bdbdbd'">
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #424242; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+            AI Summary:
+          </label>
+          <div id="stackmind-summary-status" style="
+            padding: 12px;
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #757575;
+            margin-bottom: 8px;
+          ">Generating summary with AI...</div>
+          <div id="stackmind-summary-container" style="
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            padding: 12px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #424242;
+            max-height: 150px;
+            overflow-y: auto;
+            display: none;
+            white-space: pre-wrap;
+          "></div>
         </div>
 
         <div style="margin-bottom: 20px;">
@@ -280,8 +337,12 @@ class StackOverflowCapture {
       }
     });
 
-    // Auto-generate tags
-    await this.generateTags();
+    // Auto-generate title, summary and tags
+    await Promise.all([
+      this.generateTitle(),
+      this.generateSummary(),
+      this.generateTags()
+    ]);
   }
 
   private hideCapturePanel() {
@@ -289,8 +350,87 @@ class StackOverflowCapture {
       this.capturePanel.remove();
       this.capturePanel = null;
     }
-    // Reset tags when closing
+    // Reset state when closing
     this.tags = [];
+    this.generatedTitle = '';
+    this.generatedSummary = '';
+  }
+
+  private async generateTitle() {
+    try {
+      const statusEl = document.getElementById('stackmind-title-status');
+      const inputEl = document.getElementById('stackmind-title-input') as HTMLInputElement;
+      
+      chrome.runtime.sendMessage({
+        action: 'generateTitle',
+        pageTitle: document.title,
+        text: this.selectedText.substring(0, 500)
+      }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.success) {
+          if (statusEl) {
+            statusEl.style.display = 'none';
+          }
+          if (inputEl) {
+            inputEl.style.display = 'block';
+            inputEl.placeholder = 'Enter title';
+          }
+          return;
+        }
+
+        this.generatedTitle = response.title;
+        
+        if (statusEl) {
+          statusEl.textContent = response.title;
+          statusEl.style.color = '#212121';
+          statusEl.style.cursor = 'pointer';
+          statusEl.title = 'Click to edit';
+          statusEl.onclick = () => {
+            if (inputEl) {
+              inputEl.value = response.title;
+              inputEl.style.display = 'block';
+              statusEl.style.display = 'none';
+            }
+          };
+        }
+      });
+    } catch (error) {
+      console.error('Error generating title:', error);
+    }
+  }
+
+  private async generateSummary() {
+    try {
+      const statusEl = document.getElementById('stackmind-summary-status');
+      const containerEl = document.getElementById('stackmind-summary-container');
+      
+      chrome.runtime.sendMessage({
+        action: 'summarizeText',
+        text: this.selectedText
+      }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.success) {
+          if (statusEl) {
+            statusEl.textContent = 'Summary not available. Full text will be saved.';
+            setTimeout(() => {
+              if (statusEl) statusEl.style.display = 'none';
+            }, 3000);
+          }
+          return;
+        }
+
+        this.generatedSummary = response.summary;
+        
+        if (statusEl) {
+          statusEl.style.display = 'none';
+        }
+        
+        if (containerEl) {
+          containerEl.textContent = response.summary;
+          containerEl.style.display = 'block';
+        }
+      });
+    } catch (error) {
+      console.error('Error generating summary:', error);
+    }
   }
 
   private async generateTags() {
@@ -391,7 +531,8 @@ class StackOverflowCapture {
   private async saveSolution() {
     const notesTextarea = document.getElementById('stackmind-notes') as HTMLTextAreaElement;
     const notes = notesTextarea?.value || '';
-    console.log('Notes:', notes);
+    const titleInput = document.getElementById('stackmind-title-input') as HTMLInputElement;
+    const customTitle = titleInput?.value || this.generatedTitle;
 
     // Extract question ID from URL if on Stack Overflow
     const urlMatch = window.location.href.match(/questions\/(\d+)/);
@@ -400,8 +541,9 @@ class StackOverflowCapture {
     const solution: CapturedSolution = {
       id: Date.now().toString(),
       text: this.selectedText,
+      ...(this.generatedSummary && { summary: this.generatedSummary }),
       url: window.location.href,
-      title: document.title,
+      title: customTitle || document.title,
       timestamp: Date.now(),
       questionId,
       ...(notes && { notes }),
