@@ -229,7 +229,16 @@ class SolutionCapture {
           <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #424242; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
             Selected Text:
           </label>
-          <div style="
+          <div id="stackmind-format-status" style="
+            padding: 12px;
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #757575;
+            margin-bottom: 8px;
+          ">Formatting text...</div>
+          <div id="stackmind-text-content" style="
             background: #fafafa;
             border: 1px solid #e0e0e0;
             border-radius: 4px;
@@ -239,6 +248,7 @@ class SolutionCapture {
             font-size: 13px;
             line-height: 1.6;
             color: #424242;
+            display: none;
           ">${this.escapeHtml(this.selectedText)}</div>
         </div>
 
@@ -508,8 +518,17 @@ class SolutionCapture {
             return;
           }
           
+          const statusEl = document.getElementById('stackmind-format-status');
+          const contentEl = document.getElementById('stackmind-text-content');
+          
           if (chrome.runtime.lastError || !response || !response.success) {
-            // Keep original text if formatting fails
+            // Keep original text if formatting fails, hide status and show content
+            if (statusEl) {
+              statusEl.style.display = 'none';
+            }
+            if (contentEl) {
+              contentEl.style.display = 'block';
+            }
             resolve();
             return;
           }
@@ -517,10 +536,34 @@ class SolutionCapture {
           // Update the selected text with formatted version
           this.selectedText = response.formatted;
           
+          // Update the displayed text
+          if (contentEl) {
+            contentEl.innerHTML = this.escapeHtml(response.formatted);
+          }
+          
+          // Hide loading, show content
+          if (statusEl) {
+            statusEl.style.display = 'none';
+          }
+          if (contentEl) {
+            contentEl.style.display = 'block';
+          }
+          
           resolve();
         });
       } catch (error) {
         console.error('Error formatting text:', error);
+        
+        // Hide status and show content on error
+        const statusEl = document.getElementById('stackmind-format-status');
+        const contentEl = document.getElementById('stackmind-text-content');
+        if (statusEl) {
+          statusEl.style.display = 'none';
+        }
+        if (contentEl) {
+          contentEl.style.display = 'block';
+        }
+        
         resolve();
       }
     });
@@ -678,6 +721,17 @@ class SolutionCapture {
   }
 
   private async saveSolution() {
+    const saveBtn = document.getElementById('stackmind-save') as HTMLButtonElement;
+    const originalText = saveBtn?.textContent || 'Save Solution';
+    
+    // Show loading state
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.style.opacity = '0.6';
+      saveBtn.style.cursor = 'not-allowed';
+      saveBtn.textContent = 'Saving...';
+    }
+
     const notesTextarea = document.getElementById('stackmind-notes') as HTMLTextAreaElement;
     const notes = notesTextarea?.value || '';
     const titleInput = document.getElementById('stackmind-title-input') as HTMLInputElement;
@@ -714,6 +768,15 @@ class SolutionCapture {
       console.log('StackMind: Solution saved', solution);
     } catch (error) {
       console.error('StackMind: Error saving solution', error);
+      
+      // Restore button state on error
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.style.opacity = '1';
+        saveBtn.style.cursor = 'pointer';
+        saveBtn.textContent = originalText;
+      }
+      
       alert('Error saving solution. Please try again.');
     }
   }

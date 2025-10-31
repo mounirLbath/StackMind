@@ -396,8 +396,21 @@ Generate title:`;
         const results: any = {
           title: currentTitle,
           tags: currentTags || [],
-          summary: currentSummary
+          summary: currentSummary,
+          text: selectedText
         };
+
+        // Format text with code backticks
+        try {
+          if (!aiSession) await initializeAISession();
+          if (aiSession) {
+            const formatPrompt = `Format this text by wrapping code snippets in backticks (\`code\`) for inline code or triple backticks (\`\`\`code\`\`\`) for code blocks. Keep the EXACT same text, just add markdown code formatting where appropriate. Do not summarize or change the content:\n\n${selectedText}`;
+            const formatted = await aiSession.prompt(formatPrompt);
+            results.text = formatted.trim();
+          }
+        } catch (error) {
+          console.error('Background text formatting failed:', error);
+        }
 
         // Generate title if missing
         if (!currentTitle) {
@@ -449,7 +462,7 @@ Generate title:`;
         // Save the solution
         const solution = {
           id: Date.now().toString(),
-          text: selectedText,
+          text: results.text, // Use formatted text
           summary: results.summary,
           url: url,
           title: results.title || pageTitle || 'Untitled Solution',

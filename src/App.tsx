@@ -183,12 +183,18 @@ function App() {
     window.open(url, '_blank');
   };
 
+  const [isGeneratingTags, setIsGeneratingTags] = useState(false);
+
   const generateTags = async (solution: CapturedSolution) => {
+    setIsGeneratingTags(true);
+    
     chrome.runtime.sendMessage({
       action: 'generateTags',
       title: solution.title,
       text: solution.text.substring(0, 500)
     }, (response) => {
+      setIsGeneratingTags(false);
+      
       if (chrome.runtime.lastError) {
         alert('Failed to generate tags. Please try again.');
         return;
@@ -660,10 +666,11 @@ function App() {
                           Edit Solution
                         </button>
                         <button 
-                          className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-400" 
-                          onClick={() => generateTags(selectedSolution)}
+                          className={`bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded text-[13px] font-medium transition-colors ${isGeneratingTags ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-400'}`}
+                          onClick={() => !isGeneratingTags && generateTags(selectedSolution)}
+                          disabled={isGeneratingTags}
                         >
-                          {selectedSolution.tags && selectedSolution.tags.length > 0 ? 'Regenerate Tags' : 'Generate Tags with AI'}
+                          {isGeneratingTags ? 'Generating...' : (selectedSolution.tags && selectedSolution.tags.length > 0 ? 'Regenerate Tags' : 'Generate Tags with AI')}
                         </button>
                         <button 
                           className="bg-gray-300 text-gray-800 border border-gray-400 px-4 py-2.5 rounded cursor-pointer text-[13px] font-medium transition-colors hover:bg-gray-400" 
