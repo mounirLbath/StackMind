@@ -179,6 +179,32 @@ function App() {
     };
   }, [selectedTask]);
 
+  // Check URL hash for solution ID on mount and after solutions load
+  useEffect(() => {
+    const checkUrlForSolution = () => {
+      const hash = window.location.hash;
+      if (hash && hash.startsWith('#solution=')) {
+        const solutionId = hash.substring('#solution='.length);
+        if (solutionId && solutions.length > 0) {
+          const solution = solutions.find(s => s.id === solutionId);
+          if (solution) {
+            setSelectedSolution(solution);
+            setSelectedTask(null);
+            setIsEditing(false);
+            setEditedSolution(null);
+            // Clear the hash after selecting
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }
+      }
+    };
+
+    // Check after solutions are loaded
+    if (solutions.length > 0) {
+      checkUrlForSolution();
+    }
+  }, [solutions]);
+
   const showToast = (message: string, type: 'success' | 'error' | 'info') => {
     setToast({ message, type, visible: true });
   };

@@ -6,12 +6,16 @@
     "action": {
         "default_popup": "index.html"
     },
+    "omnibox": {
+        "keyword": "ms"
+    },
     "permissions": [
         "activeTab",
         "storage",
         "contextMenus",
         "notifications",
-        "scripting"
+        "scripting",
+        "omnibox"
     ],
     "host_permissions": [
         "<all_urls>"

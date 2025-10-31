@@ -391,7 +391,11 @@ Generate title:`;
 
   if (message.action === 'openExtensionWindow') {
     // Open the extension in a popup window
-    const url = chrome.runtime.getURL('index.html');
+    let url = chrome.runtime.getURL('index.html');
+    // Add solutionId to URL if provided
+    if (message.solutionId) {
+      url += `#solution=${message.solutionId}`;
+    }
     chrome.windows.create({
       url: url,
       type: 'popup',
@@ -629,7 +633,169 @@ Title:`;
     })();
     return true;
   }
+
+  if (message.action === 'searchSolutions') {
+    // Run search in background and notify when complete
+    const sourceTabId = _sender.tab?.id;
+    
+    (async () => {
+      try {
+        const { searchQuery } = message;
+        
+        if (!searchQuery) {
+          if (sourceTabId) {
+            sendResponse({ success: false, error: 'No search query provided', matches: [] });
+          }
+          return;
+        }
+
+        // Extract keywords using AI (with timeout protection)
+        let keywords: string;
+        try {
+          keywords = await Promise.race([
+            extractKeywords(searchQuery),
+            new Promise<string>((_, reject) => 
+              setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
+            )
+          ]) as string;
+        } catch (keywordError) {
+          // Fallback to original query if extraction fails or times out
+          keywords = searchQuery.trim().toLowerCase();
+        }
+        
+        // Search solutions (always call this, even if keyword extraction failed)
+        const matches = await searchSolutions(keywords);
+        
+        // Send response if caller is waiting (for content script calls)
+        if (sourceTabId) {
+          sendResponse({ success: true, matches, keywords });
+        }
+        
+        // Also notify the active tab if matches found (even if user navigated away)
+        if (matches.length > 0) {
+          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const activeTab = tabs[0];
+            if (activeTab?.id) {
+              chrome.tabs.sendMessage(activeTab.id, {
+                action: 'showSearchMatches',
+                matches: matches,
+                searchQuery: searchQuery,
+                keywords: keywords
+              }).catch(() => {
+                // Tab might not have content script, ignore
+              });
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Search error:', error);
+        // Ensure we always send a response, even on error
+        if (sourceTabId) {
+          try {
+            sendResponse({ success: false, error: (error as Error).message, matches: [] });
+          } catch (responseError) {
+            console.error('Failed to send error response:', responseError);
+          }
+        }
+      }
+    })();
+    return true; // Keep channel open for async response
+  }
 });
+
+// Extract keywords from search query using AI
+async function extractKeywords(searchQuery: string): Promise<string> {
+  try {
+    if (!aiSession && !isInitializingSession) {
+      await initializeAISession();
+    }
+    
+    let waitCount = 0;
+    while (isInitializingSession && waitCount < 100) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitCount++;
+    }
+    
+    if (!aiSession) {
+      // Fallback: return cleaned search query
+      return searchQuery.trim().toLowerCase();
+    }
+
+    const prompt = `Extract 1 key technical keyword from this search query. Return ONLY a space-separated list of keywords, nothing else. Focus on programming/technical terms and remove stop words like "how", "what", "why", "the", etc.
+
+Search query: ${searchQuery}
+
+Keywords:`;
+    
+    const result = await aiSession.prompt(prompt);
+    const keywords = result.trim().toLowerCase();
+
+    // Fallback if result is empty or too long
+    if (!keywords || keywords.length > 100) {
+      return searchQuery.trim().toLowerCase();
+    }
+    
+    return keywords;
+  } catch (error) {
+    console.error('Keyword extraction error:', error);
+    // Fallback: return cleaned search query
+    return searchQuery.trim().toLowerCase();
+  }
+}
+
+// Search solutions using the same logic as App.tsx
+async function searchSolutions(query: string): Promise<any[]> {
+  try {
+    const storageResult = await chrome.storage.local.get(['solutions']);
+    const solutions = storageResult.solutions || [];
+    
+    if (!query || !query.trim()) {
+      return [];
+    }
+    
+    // Split keywords by space and filter out empty strings
+    const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 0);
+    
+    // If no valid keywords, return empty
+    if (keywords.length === 0) {
+      return [];
+    }
+    
+    // Search for solutions that match ANY of the keywords (same logic as App.tsx)
+    // Also check if the full query string matches (for exact phrase matches)
+    const lowerQuery = query.toLowerCase();
+    
+    const filtered = solutions.filter((s: any) => {
+      const textLower = s.text.toLowerCase();
+      const titleLower = s.title.toLowerCase();
+      const notesLower = s.notes ? s.notes.toLowerCase() : '';
+      const summaryLower = s.summary ? s.summary.toLowerCase() : '';
+      const tagsLower = s.tags ? s.tags.map((tag: string) => tag.toLowerCase()) : [];
+      
+      // First check for exact phrase match (full query string)
+      if (textLower.includes(lowerQuery) || 
+          titleLower.includes(lowerQuery) || 
+          notesLower.includes(lowerQuery) || 
+          summaryLower.includes(lowerQuery)) {
+        return true;
+      }
+      
+      // Then check if any keyword matches
+      return keywords.some(keyword => 
+        textLower.includes(keyword) ||
+        titleLower.includes(keyword) ||
+        notesLower.includes(keyword) ||
+        summaryLower.includes(keyword) ||
+        tagsLower.some((tag: string) => tag.includes(keyword))
+      );
+    });
+    
+    return filtered;
+  } catch (error) {
+    console.error('Search solutions error:', error);
+    return [];
+  }
+}
 
 // Context menu for right-click capture (optional enhancement)
 chrome.runtime.onInstalled.addListener(() => {
@@ -649,6 +815,132 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         text: info.selectionText
       });
     }
+  }
+});
+
+// Detect Google searches and trigger background search
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  // Only process when URL changes and page is fully loaded
+  if (changeInfo.status !== 'complete' || !tab.url) {
+    return;
+  }
+
+  try {
+    const url = new URL(tab.url);
+    const hostname = url.hostname.toLowerCase();
+    
+    // Check if this is a Google search results page
+    if ((hostname.includes('google.com') || hostname.includes('google.')) && url.pathname === '/search') {
+      const searchParams = url.searchParams;
+      const query = searchParams.get('q');
+      
+      if (query && query.trim()) {
+        // Run search directly in background (don't use sendMessage to self)
+        (async () => {
+          try {
+            // Extract keywords using AI (with timeout protection)
+            let keywords: string;
+            try {
+              keywords = await Promise.race([
+                extractKeywords(query.trim()),
+                new Promise<string>((_, reject) => 
+                  setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
+                )
+              ]) as string;
+            } catch (keywordError) {
+              // Fallback to original query if extraction fails or times out
+              keywords = query.trim().toLowerCase();
+            }
+            
+            // Search solutions
+            const matches = await searchSolutions(keywords);
+            
+            // Notify the active tab if matches found
+            if (matches.length > 0) {
+              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const activeTab = tabs[0];
+                if (activeTab?.id) {
+                  chrome.tabs.sendMessage(activeTab.id, {
+                    action: 'showSearchMatches',
+                    matches: matches,
+                    searchQuery: query.trim(),
+                    keywords: keywords
+                  }).catch(() => {
+                    // Tab might not have content script, ignore
+                  });
+                }
+              });
+            }
+          } catch (error) {
+            console.error('Background search error:', error);
+          }
+        })();
+      }
+    }
+  } catch (error) {
+    // Not a valid URL or not a Google search, ignore
+  }
+});
+
+// Omnibox handler - triggers when user types "ms " in address bar
+chrome.omnibox.onInputEntered.addListener((text, disposition) => {
+  if (!text.trim()) return;
+  
+  // Run search directly in background
+  (async () => {
+    try {
+      // Extract keywords using AI (with timeout protection)
+      let keywords: string;
+      try {
+        keywords = await Promise.race([
+          extractKeywords(text.trim()),
+          new Promise<string>((_, reject) => 
+            setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
+          )
+        ]) as string;
+      } catch (keywordError) {
+        // Fallback to original query if extraction fails or times out
+        keywords = text.trim().toLowerCase();
+      }
+      
+      // Search solutions
+      const matches = await searchSolutions(keywords);
+      
+      // Notify the active tab if matches found
+      if (matches.length > 0) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          const activeTab = tabs[0];
+          if (activeTab?.id) {
+            chrome.tabs.sendMessage(activeTab.id, {
+              action: 'showSearchMatches',
+              matches: matches,
+              searchQuery: text.trim(),
+              keywords: keywords
+            }).catch(() => {
+              // Tab might not have content script, ignore
+            });
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Omnibox search error:', error);
+    }
+  })();
+  
+  const url = chrome.runtime.getURL('index.html');
+  
+  // Open extension window to view results
+  if (disposition === 'newForegroundTab' || disposition === 'newBackgroundTab') {
+    chrome.tabs.create({ url });
+  } else {
+    // Current tab - get active tab and update it
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        chrome.tabs.update(tabs[0].id, { url });
+      } else {
+        chrome.tabs.create({ url });
+      }
+    });
   }
 });
 
