@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Sparkles, ExternalLink, Edit2, Copy, Trash2, Moon, Sun, Laptop, X, Plus } from 'lucide-react';
+import { Search, Sparkles, ExternalLink, Edit2, Copy, Trash2, Moon, Sun, X, Plus } from 'lucide-react';
 import { Button, Card, Tag, Input, Textarea, Toast, useTheme } from './lib/ui';
 
 interface CapturedSolution {
@@ -457,13 +457,6 @@ function App() {
             >
               <Sun className="w-4 h-4" />
             </button>
-          <button 
-              onClick={() => setTheme('system')}
-              className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'system' ? 'bg-white/30' : 'hover:bg-white/10'}`}
-              title="System theme"
-            >
-              <Laptop className="w-4 h-4" />
-          </button>
             <button 
               onClick={() => setTheme('dark')}
               className={`p-1.5 rounded transition-colors cursor-pointer ${theme === 'dark' ? 'bg-white/30' : 'hover:bg-white/10'}`}
