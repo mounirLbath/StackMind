@@ -448,6 +448,11 @@ function App() {
         </div>
 
         <div className="flex items-center gap-2">
+        {solutions.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearAll}>
+              Clear All
+            </Button>
+          )}
           {/* Theme Toggle */}
           <div className="flex items-center gap-1 glass px-2 py-1 rounded-lg">
             <button
@@ -471,11 +476,7 @@ function App() {
             New Tab
           </Button>
 
-          {solutions.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={clearAll}>
-              Clear All
-            </Button>
-          )}
+          
         </div>
       </motion.header>
 
