@@ -165,7 +165,7 @@ MindStack is fully local:
 
 ## 📜 License
 
-[Add your license here]
+MIT
 
 ---
 
