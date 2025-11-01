@@ -28,7 +28,7 @@ When you Google something similar later, your own cheat sheet quietly reappears 
 
 **No setup. No cloud. No rediscovery. Just Chrome that remembers.**
 
-> Not a note-taking tool, but a new kind of memory — personal, automatic, and seamless.
+> Not a note-taking tool, a new kind of memory — personal, automatic, and seamless.
 
 ---
 
