@@ -898,33 +898,18 @@ Title:`;
       try {
         const { searchQuery, searchMode, showOverlay = true } = message;
         
-        if (!searchQuery) {
+        const normalizedQuery = searchQuery.trim();
+        
+        if (!normalizedQuery) {
           sendResponse({ success: false, error: 'No search query provided', matches: [] });
           return;
         }
 
-        let keywords = searchQuery.trim().toLowerCase();
-        
-        // Extract keywords using AI only for keyword mode (with timeout protection)
-        if (searchMode === 'keyword') {
-          try {
-            keywords = await Promise.race([
-              extractKeywords(searchQuery),
-              new Promise<string>((_, reject) => 
-                setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
-              )
-            ]) as string;
-          } catch (keywordError) {
-            // Fallback to original query if extraction fails or times out
-            keywords = searchQuery.trim().toLowerCase();
-          }
-        }
-        
         // Search solutions with the specified mode
-        const matches = await searchSolutions(keywords, searchMode || 'keyword');
+        const matches = await searchSolutions(normalizedQuery, searchMode || 'keyword');
         
         // Always respond to caller (popup or content script)
-        sendResponse({ success: true, matches, keywords });
+        sendResponse({ success: true, matches, keywords: normalizedQuery.toLowerCase() });
         
         // Also notify the active tab if matches found (even if user navigated away)
         if (showOverlay && matches.length > 0) {
@@ -934,8 +919,8 @@ Title:`;
               chrome.tabs.sendMessage(activeTab.id, {
                 action: 'showSearchMatches',
                 matches: matches,
-                searchQuery: searchQuery,
-                keywords: keywords
+                searchQuery: normalizedQuery,
+                keywords: normalizedQuery.toLowerCase()
               }).catch(() => {
                 // Tab might not have content script, ignore
               });
@@ -955,46 +940,6 @@ Title:`;
     return true; // Keep channel open for async response
   }
 });
-
-// Extract keywords from search query using AI
-async function extractKeywords(searchQuery: string): Promise<string> {
-  try {
-    if (!aiSession && !isInitializingSession) {
-      await initializeAISession();
-    }
-    
-    let waitCount = 0;
-    while (isInitializingSession && waitCount < 100) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      waitCount++;
-    }
-    
-    if (!aiSession) {
-      // Fallback: return cleaned search query
-      return searchQuery.trim().toLowerCase();
-    }
-
-    const prompt = `Extract 1 key technical keyword from this search query. Return ONLY a space-separated list of keywords, nothing else. Focus on programming/technical terms and remove stop words like "how", "what", "why", "the", etc.
-
-Search query: ${searchQuery}
-
-Keywords:`;
-    
-    const result = await aiSession.prompt(prompt);
-    const keywords = result.trim().toLowerCase();
-
-    // Fallback if result is empty or too long
-    if (!keywords || keywords.length > 100) {
-      return searchQuery.trim().toLowerCase();
-    }
-    
-    return keywords;
-  } catch (error) {
-    console.error('Keyword extraction error:', error);
-    // Fallback: return cleaned search query
-    return searchQuery.trim().toLowerCase();
-  }
-}
 
 // Search solutions with keyword or semantic mode
 async function searchSolutions(query: string, searchMode: 'keyword' | 'semantic' = 'keyword'): Promise<any[]> {
@@ -1084,10 +1029,14 @@ async function searchSolutionsSemantic(query: string, solutions: any[]): Promise
       }
     }
     
-    // Sort by similarity score (descending)
+    // Sort by similarity score (descending - highest similarity first)
     resultsWithScores.sort((a, b) => b.score - a.score);
     
-    // Return just the solutions
+    // Log sorted order for debugging
+    console.log('[Semantic] Sorted results (highest similarity first):', 
+      resultsWithScores.map(r => `${r.score.toFixed(4)} → ${r.solution.title || '[untitled]'}`).join(', '));
+    
+    // Return just the solutions (already sorted with highest similarity first)
     return resultsWithScores.map(r => r.solution);
   } catch (error) {
     console.error('Semantic search error:', error);
@@ -1206,22 +1155,10 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
         // Run search directly in background (don't use sendMessage to self)
         (async () => {
           try {
-            // Extract keywords using AI (with timeout protection)
-            let keywords: string;
-            try {
-              keywords = await Promise.race([
-                extractKeywords(query.trim()),
-                new Promise<string>((_, reject) => 
-                  setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
-                )
-              ]) as string;
-            } catch (keywordError) {
-              // Fallback to original query if extraction fails or times out
-              keywords = query.trim().toLowerCase();
-            }
+            const normalizedQuery = query.trim();
             
             // Search solutions
-            const matches = await searchSolutions(keywords);
+            const matches = await searchSolutions(normalizedQuery, 'semantic');
             
             // Notify the active tab if matches found
             if (matches.length > 0) {
@@ -1231,8 +1168,8 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
                   chrome.tabs.sendMessage(activeTab.id, {
                     action: 'showSearchMatches',
                     matches: matches,
-                    searchQuery: query.trim(),
-                    keywords: keywords
+                    searchQuery: normalizedQuery,
+                    keywords: normalizedQuery.toLowerCase()
                   }).catch(() => {
                     // Tab might not have content script, ignore
                   });
@@ -1257,22 +1194,10 @@ chrome.omnibox.onInputEntered.addListener((text, disposition) => {
   // Run search directly in background
   (async () => {
     try {
-      // Extract keywords using AI (with timeout protection)
-      let keywords: string;
-      try {
-        keywords = await Promise.race([
-          extractKeywords(text.trim()),
-          new Promise<string>((_, reject) => 
-            setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
-          )
-        ]) as string;
-      } catch (keywordError) {
-        // Fallback to original query if extraction fails or times out
-        keywords = text.trim().toLowerCase();
-      }
+      const normalizedQuery = text.trim();
       
       // Search solutions
-      const matches = await searchSolutions(keywords);
+      const matches = await searchSolutions(normalizedQuery, 'semantic');
       
       // Notify the active tab if matches found
       if (matches.length > 0) {
@@ -1282,8 +1207,8 @@ chrome.omnibox.onInputEntered.addListener((text, disposition) => {
             chrome.tabs.sendMessage(activeTab.id, {
               action: 'showSearchMatches',
               matches: matches,
-              searchQuery: text.trim(),
-              keywords: keywords
+              searchQuery: normalizedQuery,
+              keywords: normalizedQuery.toLowerCase()
             }).catch(() => {
               // Tab might not have content script, ignore
             });
