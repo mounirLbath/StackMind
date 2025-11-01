@@ -28,10 +28,18 @@ class SolutionCapture {
         this.showCapturePanel(message.taskId);
       }
       if (message.action === 'showSearchMatches') {
-        // Show notification from background semantic search
-        // Matches are already sorted by similarity (highest first) from background script
-        console.log('[Content] Received', message.matches?.length || 0, 'matches for query:', message.searchQuery);
-        this.showSearchMatchesNotification(message.matches || [], message.searchQuery || '');
+        // Check if Google Search notifications are enabled before showing
+        chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+          const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+          
+          // Only show notification if Google Search is enabled
+          if (enabled) {
+            // Show notification from background semantic search
+            // Matches are already sorted by similarity (highest first) from background script
+            console.log('[Content] Received', message.matches?.length || 0, 'matches for query:', message.searchQuery);
+            this.showSearchMatchesNotification(message.matches || [], message.searchQuery || '');
+          }
+        });
       }
       return true;
     });

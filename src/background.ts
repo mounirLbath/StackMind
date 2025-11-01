@@ -1148,39 +1148,49 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     
     // Check if this is a Google search results page
     if ((hostname.includes('google.com') || hostname.includes('google.')) && url.pathname === '/search') {
-      const searchParams = url.searchParams;
-      const query = searchParams.get('q');
-      
-      if (query && query.trim()) {
-        // Run search directly in background (don't use sendMessage to self)
-        (async () => {
-          try {
-            const normalizedQuery = query.trim();
-            
-            // Search solutions
-            const matches = await searchSolutions(normalizedQuery, 'semantic');
-            
-            // Notify the active tab if matches found
-            if (matches.length > 0) {
-              chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                const activeTab = tabs[0];
-                if (activeTab?.id) {
-                  chrome.tabs.sendMessage(activeTab.id, {
-                    action: 'showSearchMatches',
-                    matches: matches,
-                    searchQuery: normalizedQuery,
-                    keywords: normalizedQuery.toLowerCase()
-                  }).catch(() => {
-                    // Tab might not have content script, ignore
-                  });
-                }
-              });
+      // Check if Google Search notifications are enabled
+      chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+        const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+        
+        // Only proceed if Google Search notifications are enabled
+        if (!enabled) {
+          return;
+        }
+        
+        const searchParams = url.searchParams;
+        const query = searchParams.get('q');
+        
+        if (query && query.trim()) {
+          // Run search directly in background (don't use sendMessage to self)
+          (async () => {
+            try {
+              const normalizedQuery = query.trim();
+              
+              // Search solutions
+              const matches = await searchSolutions(normalizedQuery, 'semantic');
+              
+              // Notify the active tab if matches found
+              if (matches.length > 0) {
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                  const activeTab = tabs[0];
+                  if (activeTab?.id) {
+                    chrome.tabs.sendMessage(activeTab.id, {
+                      action: 'showSearchMatches',
+                      matches: matches,
+                      searchQuery: normalizedQuery,
+                      keywords: normalizedQuery.toLowerCase()
+                    }).catch(() => {
+                      // Tab might not have content script, ignore
+                    });
+                  }
+                });
+              }
+            } catch (error) {
+              console.error('Background search error:', error);
             }
-          } catch (error) {
-            console.error('Background search error:', error);
-          }
-        })();
-      }
+          })();
+        }
+      });
     }
   } catch (error) {
     // Not a valid URL or not a Google search, ignore
