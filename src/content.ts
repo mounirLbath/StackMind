@@ -254,15 +254,26 @@ class SolutionCapture {
       return;
     }
 
-    const selection = window.getSelection();
-    const selectedText = selection?.toString().trim();
+    // Check if capture on select is enabled
+    chrome.storage.local.get(['captureOnSelectEnabled'], (result) => {
+      // Default to true if not set (for backwards compatibility)
+      const enabled = result.captureOnSelectEnabled !== undefined ? result.captureOnSelectEnabled : true;
+      
+      if (!enabled) {
+        this.hideFloatingButton();
+        return;
+      }
 
-    if (selectedText && selectedText.length > 10) {
-      this.selectedText = selectedText;
-      this.showFloatingButton(event.pageX, event.pageY);
-    } else {
-      this.hideFloatingButton();
-    }
+      const selection = window.getSelection();
+      const selectedText = selection?.toString().trim();
+
+      if (selectedText && selectedText.length > 10) {
+        this.selectedText = selectedText;
+        this.showFloatingButton(event.pageX, event.pageY);
+      } else {
+        this.hideFloatingButton();
+      }
+    });
   }
 
   private showFloatingButton(x: number, y: number) {

@@ -63,6 +63,7 @@ function App() {
   const [searchMode, setSearchMode] = useState<'keyword' | 'semantic'>('semantic');
   const [filteredSolutions, setFilteredSolutions] = useState<CapturedSolution[]>([]);
   const [googleSearchEnabled, setGoogleSearchEnabled] = useState<boolean>(false);
+  const [captureOnSelectEnabled, setCaptureOnSelectEnabled] = useState<boolean>(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean }>({
     message: '',
     type: 'info',
@@ -162,6 +163,7 @@ function App() {
     loadSolutions();
     loadBackgroundTasks();
     loadGoogleSearchSetting();
+    loadCaptureOnSelectSetting();
     
     const listener = (message: any) => {
       if (message.action === 'backgroundTaskUpdate') {
@@ -289,6 +291,14 @@ function App() {
     });
   };
 
+  const loadCaptureOnSelectSetting = () => {
+    chrome.storage.local.get(['captureOnSelectEnabled'], (result) => {
+      // Default to true if not set (for backwards compatibility)
+      const enabled = result.captureOnSelectEnabled !== undefined ? result.captureOnSelectEnabled : true;
+      setCaptureOnSelectEnabled(enabled);
+    });
+  };
+
   const toggleGoogleSearch = (enabled: boolean) => {
     setGoogleSearchEnabled(enabled);
     chrome.storage.local.set({ googleSearchEnabled: enabled }, () => {
@@ -302,6 +312,25 @@ function App() {
           enabled 
             ? 'Google Search notifications enabled' 
             : 'Google Search notifications disabled',
+          'info'
+        );
+      }
+    });
+  };
+
+  const toggleCaptureOnSelect = (enabled: boolean) => {
+    setCaptureOnSelectEnabled(enabled);
+    chrome.storage.local.set({ captureOnSelectEnabled: enabled }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to toggle capture on select:', chrome.runtime.lastError);
+        showToast('Failed to update setting', 'error');
+        // Revert state on error
+        setCaptureOnSelectEnabled(!enabled);
+      } else {
+        showToast(
+          enabled 
+            ? 'Capture on select enabled' 
+            : 'Capture on select disabled',
           'info'
         );
       }
@@ -661,6 +690,43 @@ function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Capture on Select Toggle */}
+          <div 
+            className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-200 cursor-pointer ${
+              captureOnSelectEnabled 
+                ? 'bg-white/20 dark:bg-white/10' 
+                : 'hover:bg-white/10 dark:hover:bg-white/5'
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleCaptureOnSelect(!captureOnSelectEnabled);
+            }}
+            title={captureOnSelectEnabled ? "Capture on select enabled" : "Capture on select disabled"}
+          >
+            <Plus className={`w-3.5 h-3.5 transition-colors duration-200 flex-shrink-0 ${
+              captureOnSelectEnabled 
+                ? 'text-black/70 dark:text-white/70' 
+                : 'text-black/50 dark:text-white/50'
+            }`} />
+            <span className={`text-xs font-medium transition-colors duration-200 ${
+              captureOnSelectEnabled 
+                ? 'text-black/70 dark:text-white/70' 
+                : 'text-black/60 dark:text-white/60'
+            }`}>
+              Capture on Select
+            </span>
+            <div onClick={(e) => e.stopPropagation()}>
+              <Toggle
+                checked={captureOnSelectEnabled}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  toggleCaptureOnSelect(e.target.checked);
+                }}
+                className="ml-0.5"
+              />
+            </div>
+          </div>
+
           {/* Google Search Toggle */}
           <div 
             className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-200 cursor-pointer ${
