@@ -28,8 +28,10 @@ class SolutionCapture {
         this.showCapturePanel(message.taskId);
       }
       if (message.action === 'showSearchMatches') {
-        // Show notification from background search (even if user navigated away)
-        this.showSearchMatchesNotification(message.matches, message.searchQuery);
+        // Show notification from background semantic search
+        // Matches are already sorted by similarity (highest first) from background script
+        console.log('[Content] Received', message.matches?.length || 0, 'matches for query:', message.searchQuery);
+        this.showSearchMatchesNotification(message.matches || [], message.searchQuery || '');
       }
       return true;
     });
@@ -693,37 +695,21 @@ class SolutionCapture {
   }
 
   private async detectGoogleSearch() {
-    try {
-      const url = new URL(window.location.href);
-      const hostname = url.hostname.toLowerCase();
-      
-      // Check if this is a Google search results page
-      if ((hostname.includes('google.com') || hostname.includes('google.')) && url.pathname === '/search') {
-        const searchParams = url.searchParams;
-        const query = searchParams.get('q');
-        
-        if (query && query.trim()) {
-          // Trigger background search (don't wait, it will notify when complete)
-          try {
-            chrome.runtime.sendMessage({
-              action: 'searchSolutions',
-              searchQuery: query.trim()
-            });
-          } catch (error) {
-            // Ignore errors, search runs in background
-          }
-        }
-      }
-    } catch (error) {
-      // Not a valid URL or not a Google search, ignore
-    }
+    // Background script handles Google search detection and triggers semantic search
+    // Content script just listens for results via 'showSearchMatches' message
+    // No need to duplicate the search trigger here
   }
 
   private showSearchMatchesNotification(matches: any[], searchQuery: string) {
-    // Don't show if notification already exists
-    if (document.getElementById('stackmind-search-notification')) {
-      return;
+    // Don't show if notification already exists - replace it with new results
+    const existingNotification = document.getElementById('stackmind-search-notification');
+    if (existingNotification) {
+      existingNotification.remove();
     }
+
+    // Ensure matches are sorted (they should already be from background, but be safe)
+    // Background sends them sorted by similarity (highest first), so preserve that order
+    const sortedMatches = [...matches]; // Copy array to preserve order from background
 
     const notification = document.createElement('div');
     notification.id = 'stackmind-search-notification';
@@ -746,7 +732,7 @@ class SolutionCapture {
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     `;
 
-    const matchCount = matches.length;
+    const matchCount = sortedMatches.length;
     const maxPreview = Math.min(matchCount, 3);
 
     notification.innerHTML = `
@@ -762,7 +748,7 @@ class SolutionCapture {
             <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a;">Found ${matchCount} Matching Solution${matchCount !== 1 ? 's' : ''}</div>
             <div style="font-size: 12px; color: #4a4a4a; margin-bottom: 12px;">For: "${this.escapeHtml(searchQuery)}"</div>
             
-            ${matches.slice(0, maxPreview).map((match, idx) => `
+            ${sortedMatches.slice(0, maxPreview).map((match, idx) => `
               <div style="
                 margin-bottom: ${idx < maxPreview - 1 ? '10px' : '0'};
                 padding: 10px;
@@ -792,7 +778,7 @@ class SolutionCapture {
             
             ${matchCount > maxPreview ? `
               <div style="font-size: 11px; color: #737373; margin-top: 8px; text-align: center;">
-                +${matchCount - maxPreview} more solution${matchCount - maxPreview !== 1 ? 's' : ''}
+                +${matchCount - maxPreview} more solution${matchCount - maxPreview !== 1 ? 's' : ''} (sorted by similarity)
               </div>
             ` : ''}
             

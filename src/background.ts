@@ -1,6 +1,23 @@
 // Background service worker for MindStack extension
 // Handles extension lifecycle and message passing
 
+console.log('===== BACKGROUND SCRIPT LOADED =====');
+
+import { pipeline, env } from '@xenova/transformers';
+
+// Configure transformers.js for Chrome extension
+env.allowLocalModels = false;
+env.allowRemoteModels = true;
+env.useBrowserCache = true;
+env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/';
+// Service workers are not cross-origin isolated, so multi-threaded WASM (which
+// relies on SharedArrayBuffer/Atomics.wait) cannot be used. Force single-thread.
+env.backends.onnx.wasm.numThreads = 1;
+env.backends.onnx.wasm.simd = true;
+env.backends.onnx.wasm.proxy = false;
+
+console.log('===== TRANSFORMERS IMPORTED =====');
+
 // Global AI session for tag generation
 let aiSession: any = null;
 let isInitializingSession = false;
@@ -13,6 +30,10 @@ let isInitializingSummarizer = false;
 let proofreaderSession: any = null;
 let isInitializingProofreader = false;
 
+// Global Embedding model for semantic search
+let embeddingModel: any = null;
+let isInitializingEmbedding = false;
+
 // Background tasks tracker
 interface BackgroundTask {
   id: string;
@@ -22,6 +43,7 @@ interface BackgroundTask {
     title: boolean;
     tags: boolean;
     summary: boolean;
+    indexing: boolean;
   };
   pageTitle: string;
   startTime: number;
@@ -166,6 +188,80 @@ async function initializeProofreader() {
   }
 }
 
+// Initialize Embedding model for semantic search
+async function initializeEmbeddingModel() {
+  if (embeddingModel || isInitializingEmbedding) {
+    console.log('[Embedding] Model already initialized or initializing');
+    return;
+  }
+  
+  isInitializingEmbedding = true;
+  console.log('[Embedding] Starting model initialization...');
+  
+  try {
+    // Use a lightweight model optimized for semantic similarity
+    embeddingModel = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    console.log('[Embedding] Model initialized successfully');
+  } catch (error) {
+    console.error('[Embedding] Model init failed:', error);
+    embeddingModel = null;
+  } finally {
+    isInitializingEmbedding = false;
+  }
+}
+
+// Generate embedding from text
+async function generateEmbedding(text: string): Promise<number[] | null> {
+  try {
+    console.log('[Embedding] Generating embedding for text of length:', text.length);
+    
+    if (!embeddingModel && !isInitializingEmbedding) {
+      console.log('[Embedding] Model not initialized, initializing now...');
+      await initializeEmbeddingModel();
+    }
+    
+    let waitCount = 0;
+    while (isInitializingEmbedding && waitCount < 100) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      waitCount++;
+    }
+    
+    if (!embeddingModel) {
+      console.error('[Embedding] Model not available after initialization');
+      return null;
+    }
+
+    console.log('[Embedding] Running model...');
+    // Generate embedding
+    const output = await embeddingModel(text, { pooling: 'mean', normalize: true });
+    
+    // Convert to regular array
+    const embedding = Array.from(output.data);
+    console.log('[Embedding] Generated embedding with', embedding.length, 'dimensions');
+    return embedding as number[];
+  } catch (error) {
+    console.error('[Embedding] Generation error:', error);
+    return null;
+  }
+}
+
+// Compute cosine similarity between two vectors
+function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0;
+  
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
 // Keep service worker alive during background processing
 let keepAliveInterval: number | null = null;
 
@@ -188,22 +284,32 @@ function stopKeepAlive() {
 }
 
 // Initialize on extension load (when service worker starts)
+console.log('[Background] Service worker starting...');
 initializeAISession();
 initializeSummarizer();
 initializeProofreader();
+// Don't initialize embedding model on startup - it's heavy, do it on demand
+// initializeEmbeddingModel();
 
 // Initialize when Chrome browser starts
 chrome.runtime.onStartup.addListener(() => {
+  console.log('[Background] Chrome browser starting...');
   initializeAISession();
   initializeSummarizer();
   initializeProofreader();
+  // initializeEmbeddingModel();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
+  console.log('[Background] Extension installed/updated');
+  
   // Initialize storage if needed
   chrome.storage.local.get(['solutions'], (result) => {
     if (!result.solutions) {
+      console.log('[Background] Initializing empty solutions array');
       chrome.storage.local.set({ solutions: [] });
+    } else {
+      console.log('[Background] Found', result.solutions.length, 'existing solutions');
     }
   });
   
@@ -211,13 +317,23 @@ chrome.runtime.onInstalled.addListener(() => {
   initializeAISession();
   initializeSummarizer();
   initializeProofreader();
+  // Don't initialize embedding model immediately - do it on demand
+  // initializeEmbeddingModel();
+  
+  // Migrate existing solutions to add embeddings (run in background, don't block)
+  setTimeout(() => {
+    console.log('[Background] Starting migration in background...');
+    migrateExistingSolutions();
+  }, 5000); // Wait 5 seconds before starting migration
 });
 
 // Listen for messages from content scripts or popup
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   
     if (message.action === 'getSolutions') {
+    console.log('[Background] Getting solutions...');
     chrome.storage.local.get(['solutions'], (result) => {
+      console.log('[Background] Retrieved solutions:', result.solutions?.length || 0);
       sendResponse({ solutions: result.solutions || [] });
     });
     return true; // Keep channel open for async response
@@ -581,7 +697,8 @@ Generate title:`;
           format: !!isFormatted,
           title: !!currentTitle,
           tags: !!(currentTags && currentTags.length > 0),
-          summary: !!currentSummary
+          summary: !!currentSummary,
+          indexing: false
         },
         pageTitle: pageTitle || 'Unknown Page',
         startTime: Date.now()
@@ -684,6 +801,29 @@ Title:`;
           }
         }
 
+        // Generate embedding for semantic search (indexing step)
+        let embedding: number[] | null = null;
+        try {
+          console.log(`[Background] Generating embedding for task ${taskId}...`);
+          // Combine all text for embedding
+          const textToEmbed = [
+            results.title || '',
+            results.summary || '',
+            results.text,
+            notes || ''
+          ].filter(t => t.trim()).join(' ');
+          
+          embedding = await generateEmbedding(textToEmbed);
+          task.progress.indexing = true;
+          notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
+          console.log(`[Background] Embedding generated successfully for task ${taskId}`);
+        } catch (error) {
+          console.error(`[Background] Embedding generation failed for task ${taskId}:`, error);
+          // Continue even if embedding fails - mark as complete to avoid blocking
+          task.progress.indexing = true;
+          notifyPopup('backgroundTaskUpdate', { taskId, progress: task.progress });
+        }
+
         // Get notes from the task if they were updated
         const taskNotes = task.notes || notes;
         
@@ -696,7 +836,9 @@ Title:`;
           title: results.title || pageTitle || 'Untitled Solution',
           timestamp: Date.now(),
           tags: results.tags,
-          notes: taskNotes || ''
+          notes: taskNotes || '',
+          embedding: embedding || undefined,
+          embeddingVersion: embedding ? 'all-MiniLM-L6-v2' : undefined
         };
 
         const storageResult = await chrome.storage.local.get(['solutions']);
@@ -749,53 +891,36 @@ Title:`;
     return true;
   }
 
-  if (message.action === 'searchSolutions') {
+    if (message.action === 'searchSolutions') {
     // Run search in background and notify when complete
-    const sourceTabId = _sender.tab?.id;
     
     (async () => {
       try {
-        const { searchQuery } = message;
+        const { searchQuery, searchMode, showOverlay = true } = message;
         
-        if (!searchQuery) {
-          if (sourceTabId) {
-            sendResponse({ success: false, error: 'No search query provided', matches: [] });
-          }
+        const normalizedQuery = searchQuery.trim();
+        
+        if (!normalizedQuery) {
+          sendResponse({ success: false, error: 'No search query provided', matches: [] });
           return;
         }
 
-        // Extract keywords using AI (with timeout protection)
-        let keywords: string;
-        try {
-          keywords = await Promise.race([
-            extractKeywords(searchQuery),
-            new Promise<string>((_, reject) => 
-              setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
-            )
-          ]) as string;
-        } catch (keywordError) {
-          // Fallback to original query if extraction fails or times out
-          keywords = searchQuery.trim().toLowerCase();
-        }
+        // Search solutions with the specified mode
+        const matches = await searchSolutions(normalizedQuery, searchMode || 'keyword');
         
-        // Search solutions (always call this, even if keyword extraction failed)
-        const matches = await searchSolutions(keywords);
-        
-        // Send response if caller is waiting (for content script calls)
-        if (sourceTabId) {
-          sendResponse({ success: true, matches, keywords });
-        }
+        // Always respond to caller (popup or content script)
+        sendResponse({ success: true, matches, keywords: normalizedQuery.toLowerCase() });
         
         // Also notify the active tab if matches found (even if user navigated away)
-        if (matches.length > 0) {
+        if (showOverlay && matches.length > 0) {
           chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             const activeTab = tabs[0];
             if (activeTab?.id) {
               chrome.tabs.sendMessage(activeTab.id, {
                 action: 'showSearchMatches',
                 matches: matches,
-                searchQuery: searchQuery,
-                keywords: keywords
+                searchQuery: normalizedQuery,
+                keywords: normalizedQuery.toLowerCase()
               }).catch(() => {
                 // Tab might not have content script, ignore
               });
@@ -805,12 +930,10 @@ Title:`;
       } catch (error) {
         console.error('Search error:', error);
         // Ensure we always send a response, even on error
-        if (sourceTabId) {
-          try {
-            sendResponse({ success: false, error: (error as Error).message, matches: [] });
-          } catch (responseError) {
-            console.error('Failed to send error response:', responseError);
-          }
+        try {
+          sendResponse({ success: false, error: (error as Error).message, matches: [] });
+        } catch (responseError) {
+          console.error('Failed to send error response:', responseError);
         }
       }
     })();
@@ -818,48 +941,8 @@ Title:`;
   }
 });
 
-// Extract keywords from search query using AI
-async function extractKeywords(searchQuery: string): Promise<string> {
-  try {
-    if (!aiSession && !isInitializingSession) {
-      await initializeAISession();
-    }
-    
-    let waitCount = 0;
-    while (isInitializingSession && waitCount < 100) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      waitCount++;
-    }
-    
-    if (!aiSession) {
-      // Fallback: return cleaned search query
-      return searchQuery.trim().toLowerCase();
-    }
-
-    const prompt = `Extract 1 key technical keyword from this search query. Return ONLY a space-separated list of keywords, nothing else. Focus on programming/technical terms and remove stop words like "how", "what", "why", "the", etc.
-
-Search query: ${searchQuery}
-
-Keywords:`;
-    
-    const result = await aiSession.prompt(prompt);
-    const keywords = result.trim().toLowerCase();
-
-    // Fallback if result is empty or too long
-    if (!keywords || keywords.length > 100) {
-      return searchQuery.trim().toLowerCase();
-    }
-    
-    return keywords;
-  } catch (error) {
-    console.error('Keyword extraction error:', error);
-    // Fallback: return cleaned search query
-    return searchQuery.trim().toLowerCase();
-  }
-}
-
-// Search solutions using the same logic as App.tsx
-async function searchSolutions(query: string): Promise<any[]> {
+// Search solutions with keyword or semantic mode
+async function searchSolutions(query: string, searchMode: 'keyword' | 'semantic' = 'keyword'): Promise<any[]> {
   try {
     const storageResult = await chrome.storage.local.get(['solutions']);
     const solutions = storageResult.solutions || [];
@@ -868,47 +951,166 @@ async function searchSolutions(query: string): Promise<any[]> {
       return [];
     }
     
-    // Split keywords by space and filter out empty strings
-    const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 0);
-    
-    // If no valid keywords, return empty
-    if (keywords.length === 0) {
-      return [];
+    if (searchMode === 'semantic') {
+      return await searchSolutionsSemantic(query, solutions);
+    } else {
+      return searchSolutionsKeyword(query, solutions);
     }
-    
-    // Search for solutions that match ANY of the keywords (same logic as App.tsx)
-    // Also check if the full query string matches (for exact phrase matches)
-    const lowerQuery = query.toLowerCase();
-    
-    const filtered = solutions.filter((s: any) => {
-      const textLower = s.text.toLowerCase();
-      const titleLower = s.title.toLowerCase();
-      const notesLower = s.notes ? s.notes.toLowerCase() : '';
-      const summaryLower = s.summary ? s.summary.toLowerCase() : '';
-      const tagsLower = s.tags ? s.tags.map((tag: string) => tag.toLowerCase()) : [];
-      
-      // First check for exact phrase match (full query string)
-      if (textLower.includes(lowerQuery) || 
-          titleLower.includes(lowerQuery) || 
-          notesLower.includes(lowerQuery) || 
-          summaryLower.includes(lowerQuery)) {
-        return true;
-      }
-      
-      // Then check if any keyword matches
-      return keywords.some(keyword => 
-        textLower.includes(keyword) ||
-        titleLower.includes(keyword) ||
-        notesLower.includes(keyword) ||
-        summaryLower.includes(keyword) ||
-        tagsLower.some((tag: string) => tag.includes(keyword))
-      );
-    });
-    
-    return filtered;
   } catch (error) {
     console.error('Search solutions error:', error);
     return [];
+  }
+}
+
+// Keyword-based search (original logic)
+function searchSolutionsKeyword(query: string, solutions: any[]): any[] {
+  // Split keywords by space and filter out empty strings
+  const keywords = query.toLowerCase().split(/\s+/).filter(k => k.length > 0);
+  
+  // If no valid keywords, return empty
+  if (keywords.length === 0) {
+    return [];
+  }
+  
+  // Search for solutions that match ANY of the keywords
+  // Also check if the full query string matches (for exact phrase matches)
+  const lowerQuery = query.toLowerCase();
+  
+  const filtered = solutions.filter((s: any) => {
+    const textLower = s.text.toLowerCase();
+    const titleLower = s.title.toLowerCase();
+    const notesLower = s.notes ? s.notes.toLowerCase() : '';
+    const summaryLower = s.summary ? s.summary.toLowerCase() : '';
+    const tagsLower = s.tags ? s.tags.map((tag: string) => tag.toLowerCase()) : [];
+    
+    // First check for exact phrase match (full query string)
+    if (textLower.includes(lowerQuery) || 
+        titleLower.includes(lowerQuery) || 
+        notesLower.includes(lowerQuery) || 
+        summaryLower.includes(lowerQuery)) {
+      return true;
+    }
+    
+    // Then check if any keyword matches
+    return keywords.some(keyword => 
+      textLower.includes(keyword) ||
+      titleLower.includes(keyword) ||
+      notesLower.includes(keyword) ||
+      summaryLower.includes(keyword) ||
+      tagsLower.some((tag: string) => tag.includes(keyword))
+    );
+  });
+  
+  return filtered;
+}
+
+// Semantic search using embeddings
+async function searchSolutionsSemantic(query: string, solutions: any[]): Promise<any[]> {
+  try {
+    // Generate query embedding
+    const queryEmbedding = await generateEmbedding(query);
+    
+    if (!queryEmbedding) {
+      console.warn('Failed to generate query embedding, falling back to keyword search');
+      return searchSolutionsKeyword(query, solutions);
+    }
+    
+    // Compute similarity scores for all solutions with embeddings
+    const SIMILARITY_THRESHOLD = 0.1; // Lower threshold for debugging more matches
+    const resultsWithScores: Array<{ solution: any; score: number }> = [];
+    
+    for (const solution of solutions) {
+      if (solution.embedding && Array.isArray(solution.embedding)) {
+        const score = cosineSimilarity(queryEmbedding, solution.embedding);
+        console.log('[Semantic] Similarity', score.toFixed(4), '→', solution.title || '[untitled]');
+        if (score >= SIMILARITY_THRESHOLD) {
+          resultsWithScores.push({ solution, score });
+        }
+      }
+    }
+    
+    // Sort by similarity score (descending - highest similarity first)
+    resultsWithScores.sort((a, b) => b.score - a.score);
+    
+    // Log sorted order for debugging
+    console.log('[Semantic] Sorted results (highest similarity first):', 
+      resultsWithScores.map(r => `${r.score.toFixed(4)} → ${r.solution.title || '[untitled]'}`).join(', '));
+    
+    // Return just the solutions (already sorted with highest similarity first)
+    return resultsWithScores.map(r => r.solution);
+  } catch (error) {
+    console.error('Semantic search error:', error);
+    // Fallback to keyword search on error
+    return searchSolutionsKeyword(query, solutions);
+  }
+}
+
+// Migrate existing solutions to add embeddings
+async function migrateExistingSolutions() {
+  try {
+    console.log('[Migration] Starting migration: adding embeddings to existing solutions...');
+    
+    const storageResult = await chrome.storage.local.get(['solutions']);
+    const solutions = storageResult.solutions || [];
+    
+    // Find solutions without embeddings
+    const solutionsNeedingEmbeddings = solutions.filter((s: any) => !s.embedding);
+    
+    if (solutionsNeedingEmbeddings.length === 0) {
+      console.log('[Migration] No solutions need embedding migration');
+      return;
+    }
+    
+    console.log(`[Migration] Migrating ${solutionsNeedingEmbeddings.length} solutions...`);
+    
+    // Process solutions one at a time to avoid overwhelming the system
+    let migrated = 0;
+    let failed = 0;
+    
+    for (const solution of solutions) {
+      if (!solution.embedding) {
+        try {
+          // Combine text for embedding
+          const textToEmbed = [
+            solution.title || '',
+            solution.summary || '',
+            solution.text,
+            solution.notes || ''
+          ].filter(t => t.trim()).join(' ');
+          
+          console.log(`[Migration] Processing solution ${solution.id}...`);
+          const embedding = await generateEmbedding(textToEmbed);
+          
+          if (embedding) {
+            solution.embedding = embedding;
+            solution.embeddingVersion = 'all-MiniLM-L6-v2';
+            migrated++;
+            console.log(`[Migration] Successfully migrated solution ${solution.id} (${migrated}/${solutionsNeedingEmbeddings.length})`);
+          } else {
+            failed++;
+            console.warn(`[Migration] Failed to generate embedding for solution ${solution.id}`);
+          }
+          
+          // Save after each successful migration to avoid data loss
+          if (migrated % 5 === 0) {
+            await chrome.storage.local.set({ solutions });
+            console.log(`[Migration] Checkpoint: saved ${migrated} solutions`);
+          }
+          
+          // Add small delay to avoid overloading
+          await new Promise(resolve => setTimeout(resolve, 200));
+        } catch (error) {
+          failed++;
+          console.error(`[Migration] Failed to process solution ${solution.id}:`, error);
+        }
+      }
+    }
+    
+    // Save final updated solutions
+    await chrome.storage.local.set({ solutions });
+    console.log(`[Migration] Complete: ${migrated} solutions updated, ${failed} failed`);
+  } catch (error) {
+    console.error('[Migration] Critical error:', error);
   }
 }
 
@@ -953,22 +1155,10 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
         // Run search directly in background (don't use sendMessage to self)
         (async () => {
           try {
-            // Extract keywords using AI (with timeout protection)
-            let keywords: string;
-            try {
-              keywords = await Promise.race([
-                extractKeywords(query.trim()),
-                new Promise<string>((_, reject) => 
-                  setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
-                )
-              ]) as string;
-            } catch (keywordError) {
-              // Fallback to original query if extraction fails or times out
-              keywords = query.trim().toLowerCase();
-            }
+            const normalizedQuery = query.trim();
             
             // Search solutions
-            const matches = await searchSolutions(keywords);
+            const matches = await searchSolutions(normalizedQuery, 'semantic');
             
             // Notify the active tab if matches found
             if (matches.length > 0) {
@@ -978,8 +1168,8 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
                   chrome.tabs.sendMessage(activeTab.id, {
                     action: 'showSearchMatches',
                     matches: matches,
-                    searchQuery: query.trim(),
-                    keywords: keywords
+                    searchQuery: normalizedQuery,
+                    keywords: normalizedQuery.toLowerCase()
                   }).catch(() => {
                     // Tab might not have content script, ignore
                   });
@@ -1004,22 +1194,10 @@ chrome.omnibox.onInputEntered.addListener((text, disposition) => {
   // Run search directly in background
   (async () => {
     try {
-      // Extract keywords using AI (with timeout protection)
-      let keywords: string;
-      try {
-        keywords = await Promise.race([
-          extractKeywords(text.trim()),
-          new Promise<string>((_, reject) => 
-            setTimeout(() => reject(new Error('Keyword extraction timeout')), 5000)
-          )
-        ]) as string;
-      } catch (keywordError) {
-        // Fallback to original query if extraction fails or times out
-        keywords = text.trim().toLowerCase();
-      }
+      const normalizedQuery = text.trim();
       
       // Search solutions
-      const matches = await searchSolutions(keywords);
+      const matches = await searchSolutions(normalizedQuery, 'semantic');
       
       // Notify the active tab if matches found
       if (matches.length > 0) {
@@ -1029,8 +1207,8 @@ chrome.omnibox.onInputEntered.addListener((text, disposition) => {
             chrome.tabs.sendMessage(activeTab.id, {
               action: 'showSearchMatches',
               matches: matches,
-              searchQuery: text.trim(),
-              keywords: keywords
+              searchQuery: normalizedQuery,
+              keywords: normalizedQuery.toLowerCase()
             }).catch(() => {
               // Tab might not have content script, ignore
             });

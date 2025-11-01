@@ -16,9 +16,9 @@ export function Toggle({ label, checked, onChange, className = '', ...props }: T
           onChange={onChange}
           {...props}
         />
-        <div className="w-11 h-6 backdrop-blur-md bg-white/20 dark:bg-white/10 border border-white/20 rounded-pill peer-checked:bg-primary/30 peer-checked:border-primary/40 transition-all duration-200" />
+        <div className="w-11 h-6 backdrop-blur-md bg-gray-200/60 dark:bg-gray-700/40 border border-gray-300/50 dark:border-gray-600/50 rounded-lg peer-checked:bg-primary/30 peer-checked:border-primary/40 transition-all duration-200" />
         <motion.div
-          className="absolute left-[2px] top-[2px] w-5 h-5 bg-white dark:bg-gray-200 rounded-full shadow-soft"
+          className="absolute left-[2px] top-[2px] w-5 h-5 bg-white dark:bg-gray-100 rounded-full shadow-soft border border-gray-300/30 dark:border-gray-500/30"
           animate={{ x: checked ? 20 : 0 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
         />
