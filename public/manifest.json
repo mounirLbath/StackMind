@@ -4,7 +4,17 @@
     "version": "1.0",
     "description": "StackMind turns your browser into a private AI memory: it auto-captures what you learn from docs or Stack Overflow, summarizes it with on-device AI, and recalls it the next time you hit a similar error - even in your console, even offline.",
     "action": {
-        "default_popup": "index.html"
+        "default_popup": "index.html",
+        "default_icon": {
+            "16": "/MindStack.png",
+            "48": "/MindStack.png",
+            "128": "/MindStack.png"
+        }
+    },
+    "icons": {
+        "16": "/MindStack.png",
+        "48": "/MindStack.png",
+        "128": "/MindStack.png"
     },
     "omnibox": {
         "keyword": "ms"

@@ -627,7 +627,7 @@ function App() {
         className="toolbar m-4 mb-0"
       >
         <div className="flex items-center gap-3">
-
+          <img src="/MindStack.png" alt="MindStack Logo" className="w-8 h-8" />
           <h1 className="text-xl font-semibold text-black/90 dark:text-white">MindStack</h1>
         </div>
 
