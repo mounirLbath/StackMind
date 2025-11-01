@@ -803,20 +803,24 @@ class SolutionCapture {
           <button 
             id="close-search-notification"
             style="
-              padding: 10px 14px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 8px;
               backdrop-filter: blur(8px);
               background: rgba(255, 255, 255, 0.1);
-              color: rgba(0, 0, 0, 0.7);
               border: 1px solid rgba(255, 255, 255, 0.2);
               border-radius: 6px;
-              font-size: 14px;
-              font-weight: 500;
               cursor: pointer;
               transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
             "
             onmouseover="this.style.background='rgba(255, 255, 255, 0.2)';"
-            onmouseout="this.style.background='rgba(255, 255, 255, 0.1)';">
-            Close
+            onmouseout="this.style.background='rgba(255, 255, 255, 0.1)';"
+            aria-label="Close notification">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(0, 0, 0, 0.7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
           </button>
         </div>
       </div>
