@@ -665,7 +665,7 @@ function App() {
           <div 
             className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-200 cursor-pointer ${
               googleSearchEnabled 
-                ? 'bg-blue-500/20 dark:bg-blue-500/15' 
+                ? 'bg-white/20 dark:bg-white/10' 
                 : 'hover:bg-white/10 dark:hover:bg-white/5'
             }`}
             onClick={(e) => {
@@ -676,12 +676,12 @@ function App() {
           >
             <Search className={`w-3.5 h-3.5 transition-colors duration-200 flex-shrink-0 ${
               googleSearchEnabled 
-                ? 'text-blue-600 dark:text-blue-400' 
+                ? 'text-black/70 dark:text-white/70' 
                 : 'text-black/50 dark:text-white/50'
             }`} />
             <span className={`text-xs font-medium transition-colors duration-200 ${
               googleSearchEnabled 
-                ? 'text-blue-700 dark:text-blue-400' 
+                ? 'text-black/70 dark:text-white/70' 
                 : 'text-black/60 dark:text-white/60'
             }`}>
               Google Search
