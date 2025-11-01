@@ -728,7 +728,7 @@ function App() {
               <ol className="text-sm muted space-y-2 ml-4 list-decimal">
               <li>Go to any page</li>
               <li>Select the text of the solution to your question</li>
-                <li>Click "Capture Solution"</li>
+                <li>Click "Capture Now"</li>
               <li>Your solution will be saved here!</li>
             </ol>
           </div>
