@@ -62,6 +62,7 @@ function App() {
   const [isResizing, setIsResizing] = useState(false);
   const [searchMode, setSearchMode] = useState<'keyword' | 'semantic'>('semantic');
   const [filteredSolutions, setFilteredSolutions] = useState<CapturedSolution[]>([]);
+  const [googleSearchEnabled, setGoogleSearchEnabled] = useState<boolean>(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; visible: boolean }>({
     message: '',
     type: 'info',
@@ -160,6 +161,7 @@ function App() {
     console.log('[App] Initializing app...');
     loadSolutions();
     loadBackgroundTasks();
+    loadGoogleSearchSetting();
     
     const listener = (message: any) => {
       if (message.action === 'backgroundTaskUpdate') {
@@ -275,6 +277,33 @@ function App() {
           });
           return notes;
         });
+      }
+    });
+  };
+
+  const loadGoogleSearchSetting = () => {
+    chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+      // Default to false if not set
+      const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+      setGoogleSearchEnabled(enabled);
+    });
+  };
+
+  const toggleGoogleSearch = (enabled: boolean) => {
+    setGoogleSearchEnabled(enabled);
+    chrome.storage.local.set({ googleSearchEnabled: enabled }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Failed to toggle Google search:', chrome.runtime.lastError);
+        showToast('Failed to update setting', 'error');
+        // Revert state on error
+        setGoogleSearchEnabled(!enabled);
+      } else {
+        showToast(
+          enabled 
+            ? 'Google Search notifications enabled' 
+            : 'Google Search notifications disabled',
+          'info'
+        );
       }
     });
   };
@@ -632,7 +661,44 @@ function App() {
         </div>
 
         <div className="flex items-center gap-2">
-        {solutions.length > 0 && (
+          {/* Google Search Toggle */}
+          <div 
+            className={`flex items-center gap-2 px-2.5 py-1 rounded-md transition-all duration-200 cursor-pointer ${
+              googleSearchEnabled 
+                ? 'bg-white/20 dark:bg-white/10' 
+                : 'hover:bg-white/10 dark:hover:bg-white/5'
+            }`}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleGoogleSearch(!googleSearchEnabled);
+            }}
+            title={googleSearchEnabled ? "Google Search notifications enabled" : "Google Search notifications disabled"}
+          >
+            <Search className={`w-3.5 h-3.5 transition-colors duration-200 flex-shrink-0 ${
+              googleSearchEnabled 
+                ? 'text-black/70 dark:text-white/70' 
+                : 'text-black/50 dark:text-white/50'
+            }`} />
+            <span className={`text-xs font-medium transition-colors duration-200 ${
+              googleSearchEnabled 
+                ? 'text-black/70 dark:text-white/70' 
+                : 'text-black/60 dark:text-white/60'
+            }`}>
+              Google Search
+            </span>
+            <div onClick={(e) => e.stopPropagation()}>
+              <Toggle
+                checked={googleSearchEnabled}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  toggleGoogleSearch(e.target.checked);
+                }}
+                className="ml-0.5"
+              />
+            </div>
+          </div>
+
+          {solutions.length > 0 && (
             <Button variant="ghost" size="sm" onClick={clearAll}>
               Clear All
             </Button>

@@ -28,10 +28,18 @@ class SolutionCapture {
         this.showCapturePanel(message.taskId);
       }
       if (message.action === 'showSearchMatches') {
-        // Show notification from background semantic search
-        // Matches are already sorted by similarity (highest first) from background script
-        console.log('[Content] Received', message.matches?.length || 0, 'matches for query:', message.searchQuery);
-        this.showSearchMatchesNotification(message.matches || [], message.searchQuery || '');
+        // Check if Google Search notifications are enabled before showing
+        chrome.storage.local.get(['googleSearchEnabled'], (result) => {
+          const enabled = result.googleSearchEnabled !== undefined ? result.googleSearchEnabled : false;
+          
+          // Only show notification if Google Search is enabled
+          if (enabled) {
+            // Show notification from background semantic search
+            // Matches are already sorted by similarity (highest first) from background script
+            console.log('[Content] Received', message.matches?.length || 0, 'matches for query:', message.searchQuery);
+            this.showSearchMatchesNotification(message.matches || [], message.searchQuery || '');
+          }
+        });
       }
       return true;
     });
@@ -286,7 +294,7 @@ class SolutionCapture {
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
         </svg>
-        Capture Solution
+        Capture
       </button>
     `;
 
@@ -713,113 +721,107 @@ class SolutionCapture {
 
     const notification = document.createElement('div');
     notification.id = 'stackmind-search-notification';
+    notification.className = 'glass';
     notification.style.cssText = `
       position: fixed;
       top: 24px;
       right: 24px;
       backdrop-filter: blur(16px) saturate(180%);
-      background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-left: 4px solid #4285F4;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-left: 4px solid rgba(66, 133, 244, 0.4);
       padding: 20px;
       border-radius: 12px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
       z-index: 10004;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 14px;
+      font-size: 15px;
       max-width: 450px;
       animation: slideInFromTop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
       transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
     `;
 
-    const matchCount = sortedMatches.length;
-    const maxPreview = Math.min(matchCount, 3);
+    // Only show the best match (first one)
+    const bestMatch = sortedMatches[0];
+    if (!bestMatch) {
+      return; // No matches, don't show notification
+    }
 
     notification.innerHTML = `
-      <div style="display: flex; flex-direction: column; gap: 12px;">
-        <div style="display: flex; align-items: start; gap: 12px;">
-          <div style="flex-shrink: 0; margin-top: 2px;">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="10" cy="10" r="10" fill="#4285F4"/>
-              <path d="M8 7L12 10L8 13" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <div style="flex: 1;">
-            <div style="font-weight: 600; margin-bottom: 4px; color: #1a1a1a;">Found ${matchCount} Matching Solution${matchCount !== 1 ? 's' : ''}</div>
-            <div style="font-size: 12px; color: #4a4a4a; margin-bottom: 12px;">For: "${this.escapeHtml(searchQuery)}"</div>
-            
-            ${sortedMatches.slice(0, maxPreview).map((match, idx) => `
-              <div style="
-                margin-bottom: ${idx < maxPreview - 1 ? '10px' : '0'};
-                padding: 10px;
-                background: rgba(66, 133, 244, 0.08);
-                border-radius: 8px;
-                border-left: 2px solid #4285F4;
-                cursor: pointer;
-                transition: all 0.2s;
-              " 
-              class="solution-match-preview"
-              data-solution-id="${match.id}"
-              onmouseover="this.style.background='rgba(66, 133, 244, 0.15)'; this.style.transform='translateX(2px)';"
-              onmouseout="this.style.background='rgba(66, 133, 244, 0.08)'; this.style.transform='translateX(0)';">
-                <div style="font-weight: 600; font-size: 13px; color: #1a1a1a; margin-bottom: 4px;">${this.escapeHtml(match.title || 'Untitled Solution')}</div>
-                <div style="font-size: 11px; color: #4a4a4a; line-height: 1.4;">
-                  ${match.summary ? this.escapeHtml(match.summary.substring(0, 80)) + '...' : (match.text ? this.escapeHtml(match.text.substring(0, 80)) + '...' : '')}
-                </div>
-                ${match.tags && match.tags.length > 0 ? `
-                  <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px;">
-                    ${match.tags.slice(0, 3).map((tag: string) => `
-                      <span style="font-size: 9px; background: rgba(66, 133, 244, 0.2); color: #4285F4; padding: 2px 6px; border-radius: 4px;">${this.escapeHtml(tag)}</span>
-                    `).join('')}
-                  </div>
-                ` : ''}
-              </div>
-            `).join('')}
-            
-            ${matchCount > maxPreview ? `
-              <div style="font-size: 11px; color: #737373; margin-top: 8px; text-align: center;">
-                +${matchCount - maxPreview} more solution${matchCount - maxPreview !== 1 ? 's' : ''} (sorted by similarity)
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <div style="font-weight: 600; margin-bottom: 6px; color: rgba(0, 0, 0, 0.9); font-size: 16px;">Best Match Found</div>
+          <div style="font-size: 14px; color: rgba(0, 0, 0, 0.6); margin-bottom: 16px;">For: "${this.escapeHtml(searchQuery)}"</div>
+          
+          <div style="
+            padding: 16px;
+            backdrop-filter: blur(8px);
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          " 
+          class="solution-match-preview"
+          data-solution-id="${bestMatch.id}"
+          onmouseover="this.style.background='rgba(255, 255, 255, 0.25)'; this.style.transform='translateX(2px)'; this.style.boxShadow='0 2px 8px rgba(0, 0, 0, 0.08)';"
+          onmouseout="this.style.background='rgba(255, 255, 255, 0.15)'; this.style.transform='translateX(0)'; this.style.boxShadow='none';">
+            <div style="font-weight: 600; font-size: 15px; color: rgba(0, 0, 0, 0.9); margin-bottom: 8px;">${this.escapeHtml(bestMatch.title || 'Untitled Solution')}</div>
+            <div style="font-size: 13px; color: rgba(0, 0, 0, 0.6); line-height: 1.5;">
+              ${bestMatch.summary ? this.escapeHtml(bestMatch.summary.substring(0, 120)) + (bestMatch.summary.length > 120 ? '...' : '') : (bestMatch.text ? this.escapeHtml(bestMatch.text.substring(0, 120)) + (bestMatch.text.length > 120 ? '...' : '') : '')}
+            </div>
+            ${bestMatch.tags && bestMatch.tags.length > 0 ? `
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px;">
+                ${bestMatch.tags.slice(0, 3).map((tag: string) => `
+                  <span style="font-size: 11px; background: rgba(255, 255, 255, 0.2); color: rgba(0, 0, 0, 0.7); padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.2);">${this.escapeHtml(tag)}</span>
+                `).join('')}
               </div>
             ` : ''}
-            
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
-              <button 
-                id="view-all-matches"
-                style="
-                  flex: 1;
-                  padding: 8px 12px;
-                  background: #4285F4;
-                  color: white;
-                  border: none;
-                  border-radius: 6px;
-                  font-size: 12px;
-                  font-weight: 600;
-                  cursor: pointer;
-                  transition: all 0.2s;
-                "
-                onmouseover="this.style.background='#357ae8'; this.style.transform='translateY(-1px)';"
-                onmouseout="this.style.background='#4285F4'; this.style.transform='translateY(0)';">
-                View All
-              </button>
-              <button 
-                id="close-search-notification"
-                style="
-                  padding: 8px 12px;
-                  background: rgba(0, 0, 0, 0.05);
-                  color: #1a1a1a;
-                  border: none;
-                  border-radius: 6px;
-                  font-size: 12px;
-                  font-weight: 500;
-                  cursor: pointer;
-                  transition: all 0.2s;
-                "
-                onmouseover="this.style.background='rgba(0, 0, 0, 0.1)';"
-                onmouseout="this.style.background='rgba(0, 0, 0, 0.05)';">
-                Close
-              </button>
-            </div>
           </div>
+        </div>
+        
+        <div style="display: flex; gap: 8px;">
+          <button 
+            id="view-solution"
+            style="
+              flex: 1;
+              padding: 10px 14px;
+              backdrop-filter: blur(8px);
+              background: rgba(255, 255, 255, 0.2);
+              color: rgba(0, 0, 0, 0.9);
+              border: 1px solid rgba(255, 255, 255, 0.2);
+              border-radius: 6px;
+              font-size: 14px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            "
+            onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 8px rgba(0, 0, 0, 0.08)';"
+            onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'; this.style.transform='translateY(0)'; this.style.boxShadow='none';">
+            View Solution
+          </button>
+          <button 
+            id="close-search-notification"
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              padding: 8px;
+              backdrop-filter: blur(8px);
+              background: rgba(255, 255, 255, 0.1);
+              border: 1px solid rgba(255, 255, 255, 0.2);
+              border-radius: 6px;
+              cursor: pointer;
+              transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            "
+            onmouseover="this.style.background='rgba(255, 255, 255, 0.2)';"
+            onmouseout="this.style.background='rgba(255, 255, 255, 0.1)';"
+            aria-label="Close notification">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(0, 0, 0, 0.7)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       </div>
     `;
@@ -848,12 +850,15 @@ class SolutionCapture {
       });
     });
 
-    // Handle "View All" button
-    const viewAllBtn = notification.querySelector('#view-all-matches');
-    viewAllBtn?.addEventListener('click', () => {
+    // Handle "View Solution" button
+    const viewSolutionBtn = notification.querySelector('#view-solution');
+    viewSolutionBtn?.addEventListener('click', () => {
       try {
         if (!this.checkExtensionContext()) return;
-        chrome.runtime.sendMessage({ action: 'openExtensionWindow' });
+        chrome.runtime.sendMessage({ 
+          action: 'openExtensionWindow',
+          solutionId: bestMatch.id
+        });
         notification.style.animation = 'slideOutToTop 0.14s ease-out';
         setTimeout(() => notification.remove(), 140);
       } catch (e) {
